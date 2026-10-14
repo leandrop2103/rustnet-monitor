@@ -1,7 +1,7 @@
 use eframe::egui::{self, Color32, RichText};
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
@@ -163,10 +163,48 @@ impl RustNetApp {
             update_status,
         }
     }
+
+    /// Sincroniza em tempo real as configurações e a lista de hosts com o Dashboard e o Pinger.
+    pub fn sync_hosts_and_config(&mut self) {
+        // 1. Atualiza lista local de stats_list preservando métricas de hosts existentes
+        let mut updated_stats = Vec::new();
+        for host_cfg in &self.config.hosts {
+            if host_cfg.enabled {
+                if let Some(existing) = self
+                    .stats_list
+                    .iter()
+                    .find(|s| s.name == host_cfg.name && s.target_str == host_cfg.address)
+                {
+                    updated_stats.push(existing.clone());
+                } else {
+                    let new_stat = HostStats::new(host_cfg.name.clone(), host_cfg.address.clone());
+                    self.history_points
+                        .entry(host_cfg.name.clone())
+                        .or_default();
+                    self.active_hosts_in_chart
+                        .entry(host_cfg.name.clone())
+                        .or_insert(true);
+                    updated_stats.push(new_stat);
+                }
+            }
+        }
+        self.stats_list = updated_stats;
+        self.active_hosts_in_chart
+            .retain(|name, _| self.config.hosts.iter().any(|h| h.enabled && &h.name == name));
+
+        // 2. Notifica o pinger worker em background para aplicar imediatamente a nova lista
+        if let Some(ref tx_cmd) = self.tx_pinger_cmd {
+            let _ = tx_cmd.send(PingerCommand::UpdateConfig(self.config.clone()));
+        }
+
+        // 3. Garante a persistência imediata em disco no config.toml
+        let _ = self.config.save(&self.config_path);
+    }
 }
 
 impl Drop for RustNetApp {
     fn drop(&mut self) {
+        let _ = self.config.save(&self.config_path);
         if let Some(ref stop) = self.stop_signal {
             stop.store(true, Ordering::Relaxed);
         }
@@ -185,14 +223,19 @@ impl eframe::App for RustNetApp {
             while let Ok(update) = rx.try_recv() {
                 self.last_update_time = Some(Instant::now());
 
-                // Atualiza ou insere nas estatísticas em memória
+                // Atualiza ou insere nas estatísticas em memória apenas se o host estiver ativo
                 if let Some(existing) = self
                     .stats_list
                     .iter_mut()
                     .find(|s| s.name == update.host_name)
                 {
                     *existing = update.stats.clone();
-                } else {
+                } else if self
+                    .config
+                    .hosts
+                    .iter()
+                    .any(|h| h.enabled && h.name == update.host_name)
+                {
                     self.stats_list.push(update.stats.clone());
                 }
 
@@ -389,11 +432,19 @@ impl eframe::App for RustNetApp {
                 );
             }
             ActiveTab::History => {
-                let db_path = PathBuf::from(&self.config.database.path);
+                let db_path = if Path::new(&self.config.database.path).is_relative() {
+                    self.config_path.parent().unwrap_or(Path::new(".")).join(&self.config.database.path)
+                } else {
+                    PathBuf::from(&self.config.database.path)
+                };
                 render_history(ui, &mut self.history_state, &db_path);
             }
             ActiveTab::Events => {
-                let db_path = PathBuf::from(&self.config.database.path);
+                let db_path = if Path::new(&self.config.database.path).is_relative() {
+                    self.config_path.parent().unwrap_or(Path::new(".")).join(&self.config.database.path)
+                } else {
+                    PathBuf::from(&self.config.database.path)
+                };
                 render_events(ui, &mut self.events_state, &db_path);
             }
             ActiveTab::Settings => {
@@ -405,6 +456,11 @@ impl eframe::App for RustNetApp {
                     &self.available_update,
                     &self.update_status,
                 );
+
+                if self.settings_state.hosts_changed {
+                    self.settings_state.hosts_changed = false;
+                    self.sync_hosts_and_config();
+                }
 
                 // Executa a reinicialização de métricas com base na confirmação do usuário
                 if self.settings_state.request_reset_metrics {

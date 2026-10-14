@@ -337,8 +337,38 @@ fn main() {
     }
 
     // 2. Carrega configurações locais portáteis (config.toml)
-    let config_path = Path::new("config.toml");
-    let config = match AppConfig::load_or_create(config_path) {
+    let cwd_config = Path::new("config.toml");
+    let config_path_candidate = if cwd_config.exists() {
+        cwd_config.to_path_buf()
+    } else if let Ok(exe_path) = env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            let exe_config = parent.join("config.toml");
+            if exe_config.exists() {
+                exe_config
+            } else {
+                cwd_config.to_path_buf()
+            }
+        } else {
+            cwd_config.to_path_buf()
+        }
+    } else {
+        cwd_config.to_path_buf()
+    };
+
+    let config_path_buf = if let Ok(abs) = std::fs::canonicalize(&config_path_candidate) {
+        let abs_str = abs.to_string_lossy();
+        if let Some(stripped) = abs_str.strip_prefix(r"\\?\") {
+            PathBuf::from(stripped)
+        } else {
+            abs
+        }
+    } else if let Ok(cwd) = env::current_dir() {
+        cwd.join(&config_path_candidate)
+    } else {
+        config_path_candidate
+    };
+
+    let config = match AppConfig::load_or_create(&config_path_buf) {
         Ok(cfg) => cfg,
         Err(e) => {
             eprintln!(
@@ -361,7 +391,14 @@ fn main() {
     info!("Iniciando RustNet Monitor v{}...", VERSION);
 
     // 4. Inicializa o Database Worker assíncrono (SQLite em rustnet.db)
-    let db_path = PathBuf::from(&config.database.path);
+    let db_path = if Path::new(&config.database.path).is_relative() {
+        config_path_buf
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join(&config.database.path)
+    } else {
+        PathBuf::from(&config.database.path)
+    };
     let (db_handle, db_thread) =
         match start_database_worker(db_path, config.database.retention_days) {
             Ok((handle, thread)) => (Some(handle), Some(thread)),
@@ -498,7 +535,7 @@ fn main() {
     };
 
     let config_clone = config.clone();
-    let config_path_buf = config_path.to_path_buf();
+    let config_path_for_gui = config_path_buf.clone();
 
     let _ = eframe::run_native(
         "RustNet Monitor",
@@ -507,7 +544,7 @@ fn main() {
             gui::setup_fonts(&cc.egui_ctx);
             Ok(Box::new(gui::RustNetApp::new(
                 config_clone,
-                config_path_buf,
+                config_path_for_gui,
                 diagnostic,
                 db_handle,
             )))

@@ -14,6 +14,7 @@ pub struct SettingsState {
     pub show_reset_confirmation: bool,
     pub clear_db_history: bool,
     pub request_reset_metrics: bool,
+    pub hosts_changed: bool,
 }
 
 impl Default for SettingsState {
@@ -26,6 +27,7 @@ impl Default for SettingsState {
             show_reset_confirmation: false,
             clear_db_history: true,
             request_reset_metrics: false,
+            hosts_changed: false,
         }
     }
 }
@@ -173,9 +175,12 @@ pub fn render_settings(
                 ui.add_space(4.0);
 
                 let mut to_remove = None;
+                let mut host_toggled = false;
                 for (i, host) in config.hosts.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
-                        ui.checkbox(&mut host.enabled, "");
+                        if ui.checkbox(&mut host.enabled, "").changed() {
+                            host_toggled = true;
+                        }
                         ui.label(RichText::new(&host.name).strong());
                         ui.label(format!("({})", host.address));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -196,8 +201,25 @@ pub fn render_settings(
                     });
                 }
 
+                if host_toggled {
+                    state.hosts_changed = true;
+                    let _ = config.save(config_path);
+                }
+
                 if let Some(idx) = to_remove {
                     config.hosts.remove(idx);
+                    state.hosts_changed = true;
+                    if let Err(e) = config.save(config_path) {
+                        state.status_message = Some((
+                            format!("Host removido, mas falhou ao salvar config.toml: {}", e),
+                            true,
+                        ));
+                    } else {
+                        state.status_message = Some((
+                            "Host removido e salvo com sucesso!".to_string(),
+                            false,
+                        ));
+                    }
                 }
 
                 ui.separator();
@@ -221,8 +243,19 @@ pub fn render_settings(
                             });
                             state.new_host_name.clear();
                             state.new_host_address.clear();
-                            state.status_message =
-                                Some(("Host adicionado com sucesso!".to_string(), false));
+                            state.hosts_changed = true;
+
+                            if let Err(e) = config.save(config_path) {
+                                state.status_message = Some((
+                                    format!("Host adicionado, mas falhou ao salvar config.toml: {}", e),
+                                    true,
+                                ));
+                            } else {
+                                state.status_message = Some((
+                                    "Host adicionado e salvo com sucesso em config.toml!".to_string(),
+                                    false,
+                                ));
+                            }
                         } else {
                             state.status_message =
                                 Some(("Preencha o nome e o endereço do host.".to_string(), true));
@@ -517,6 +550,7 @@ pub fn render_settings(
                 {
                     match config.save(config_path) {
                         Ok(()) => {
+                            state.hosts_changed = true;
                             state.status_message = Some((
                                 "Configurações salvas em config.toml com sucesso!".to_string(),
                                 false,
