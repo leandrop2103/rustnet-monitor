@@ -331,50 +331,60 @@ impl eframe::App for RustNetApp {
                         .color(Color32::from_rgb(230, 126, 34)),
                 );
 
-                ui.add_space(16.0);
-
-                let tabs = [
-                    (ActiveTab::Dashboard, "📊 Dashboard"),
-                    (ActiveTab::Charts, "📈 Gráficos"),
-                    (ActiveTab::Tools, "🛠 Ferramentas"),
-                    (ActiveTab::History, "🕒 Histórico"),
-                    (ActiveTab::Events, "🔔 Eventos"),
-                    (ActiveTab::Settings, "⚙ Configurações"),
-                ];
-
-                for (tab, label) in tabs {
-                    let is_active = self.active_tab == tab;
-                    if ui
-                        .selectable_label(is_active, RichText::new(label).strong())
-                        .clicked()
-                    {
-                        self.active_tab = tab;
-                    }
-                }
-
-                // Notificação de atualização disponível na barra superior
-                let has_update = self.available_update.lock().ok().and_then(|g| g.clone());
-                if let Some(ref info) = has_update {
-                    ui.add_space(8.0);
-                    if ui
-                        .button(
-                            RichText::new(format!("✨ v{} Disponível!", info.version))
-                                .color(Color32::from_rgb(46, 204, 113))
-                                .strong(),
-                        )
-                        .clicked()
-                    {
-                        self.active_tab = ActiveTab::Settings;
-                    }
-                }
-
+                // 2. Painel da Direita: Botões de Navegação alinhados à direita e Mensagem no Meio
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if let Some(last) = self.last_update_time {
-                        let ago = last.elapsed().as_secs();
-                        ui.label(RichText::new(format!("Atualizado há {}s", ago)).weak());
-                    } else {
-                        ui.label(RichText::new("Aguardando amostras...").weak());
+                    let tabs = [
+                        (ActiveTab::Dashboard, "📊 Dashboard"),
+                        (ActiveTab::Charts, "📈 Gráficos"),
+                        (ActiveTab::Tools, "🛠 Ferramentas"),
+                        (ActiveTab::History, "🕒 Histórico"),
+                        (ActiveTab::Events, "🔔 Eventos"),
+                        (ActiveTab::Settings, "⚙ Configurações"),
+                    ];
+
+                    for (tab, label) in tabs.iter().rev() {
+                        let is_active = self.active_tab == *tab;
+                        if ui
+                            .selectable_label(is_active, RichText::new(*label).strong())
+                            .clicked()
+                        {
+                            self.active_tab = *tab;
+                        }
                     }
+
+                    // 3. Mensagem de Atualização centralizada no meio (entre título e botões)
+                    ui.with_layout(
+                        egui::Layout::left_to_right(egui::Align::Center)
+                            .with_main_align(egui::Align::Center),
+                        |ui| {
+                            let has_update =
+                                self.available_update.lock().ok().and_then(|g| g.clone());
+                            if let Some(ref info) = has_update {
+                                if ui
+                                    .button(
+                                        RichText::new(format!("✨ v{} Disponível!", info.version))
+                                            .color(Color32::from_rgb(46, 204, 113))
+                                            .strong(),
+                                    )
+                                    .clicked()
+                                {
+                                    self.active_tab = ActiveTab::Settings;
+                                }
+                                ui.add_space(8.0);
+                                ui.separator();
+                                ui.add_space(8.0);
+                            }
+
+                            if let Some(last) = self.last_update_time {
+                                let ago = last.elapsed().as_secs();
+                                ui.label(
+                                    RichText::new(format!("⏱ Atualizado há {}s", ago)).weak(),
+                                );
+                            } else {
+                                ui.label(RichText::new("⏱ Aguardando amostras...").weak());
+                            }
+                        },
+                    );
                 });
             });
             ui.add_space(4.0);
