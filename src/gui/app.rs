@@ -411,6 +411,7 @@ impl eframe::App for RustNetApp {
             ActiveTab::Dashboard => {
                 render_dashboard(
                     ui,
+                    &mut self.config.dashboard,
                     &self.diagnostic,
                     &self.stats_list,
                     &self.config.thresholds,

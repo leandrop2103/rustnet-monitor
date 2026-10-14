@@ -25,6 +25,8 @@ pub struct AppConfig {
     pub database: DatabaseConfig,
     #[serde(default)]
     pub hosts: Vec<HostConfig>,
+    #[serde(default)]
+    pub dashboard: DashboardConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -79,6 +81,29 @@ pub struct HostConfig {
     pub enabled: bool,
     #[serde(default = "default_false")]
     pub is_dynamic_gateway: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DashboardConfig {
+    #[serde(default = "default_true")]
+    pub interface_card_expanded: bool,
+    #[serde(default = "default_true")]
+    pub wifi_card_expanded: bool,
+    #[serde(default = "default_true")]
+    pub wan_card_expanded: bool,
+    #[serde(default = "default_true")]
+    pub hosts_card_expanded: bool,
+}
+
+impl Default for DashboardConfig {
+    fn default() -> Self {
+        Self {
+            interface_card_expanded: default_true(),
+            wifi_card_expanded: default_true(),
+            wan_card_expanded: default_true(),
+            hosts_card_expanded: default_true(),
+        }
+    }
 }
 
 fn default_true() -> bool {
@@ -204,6 +229,7 @@ impl Default for AppConfig {
                     is_dynamic_gateway: false,
                 },
             ],
+            dashboard: DashboardConfig::default(),
         }
     }
 }
