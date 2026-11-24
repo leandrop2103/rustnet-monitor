@@ -107,7 +107,6 @@ pub fn get_or_create_host(
 }
 
 /// Recupera todos os hosts cadastrados.
-#[allow(dead_code)]
 pub fn get_all_hosts(conn: &Connection) -> Result<Vec<HostRecord>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT id, name, address, host_type, enabled, created_at, updated_at FROM hosts ORDER BY id ASC",
@@ -130,33 +129,6 @@ pub fn get_all_hosts(conn: &Connection) -> Result<Vec<HostRecord>, rusqlite::Err
         hosts.push(host?);
     }
     Ok(hosts)
-}
-
-/// Insere uma amostra de latência individual.
-#[allow(dead_code)]
-pub fn insert_latency_sample(
-    conn: &Connection,
-    host_id: i64,
-    timestamp: &str,
-    latency_ms: f64,
-    success: bool,
-    error_type: Option<&str>,
-) -> Result<i64, rusqlite::Error> {
-    conn.execute(
-        "
-        INSERT INTO latency_samples (host_id, timestamp, latency_ms, success, error_type)
-        VALUES (?1, ?2, ?3, ?4, ?5)
-        ",
-        params![
-            host_id,
-            timestamp,
-            latency_ms,
-            if success { 1 } else { 0 },
-            error_type
-        ],
-    )?;
-
-    Ok(conn.last_insert_rowid())
 }
 
 /// Insere múltiplas amostras de latência em lote sob uma única transação atômica.
@@ -231,12 +203,12 @@ pub fn cleanup_old_records(
     let modifier = format!("-{} days", retention_days);
 
     let deleted_samples = conn.execute(
-        "DELETE FROM latency_samples WHERE timestamp < datetime('now', ?1)",
+        "DELETE FROM latency_samples WHERE timestamp < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?1)",
         params![modifier],
     )?;
 
     let deleted_events = conn.execute(
-        "DELETE FROM network_events WHERE timestamp < datetime('now', ?1)",
+        "DELETE FROM network_events WHERE timestamp < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?1)",
         params![modifier],
     )?;
 
@@ -249,7 +221,7 @@ pub fn clear_all_samples(conn: &Connection) -> Result<usize, rusqlite::Error> {
 }
 
 /// Recupera as amostras mais recentes para determinado host.
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn get_recent_samples_for_host(
     conn: &Connection,
     host_id: i64,
@@ -368,5 +340,39 @@ mod tests {
 
         let id = insert_network_event(&conn, &event).unwrap();
         assert!(id > 0);
+    }
+
+    #[test]
+    fn test_cleanup_old_records_iso_format() {
+        let mut conn = open_memory_connection().unwrap();
+        run_migrations(&mut conn).unwrap();
+
+        let host_id = upsert_host(&conn, "Test", "1.1.1.1", "dns", true).unwrap();
+        let samples = vec![
+            LatencySampleRecord {
+                id: None,
+                host_id,
+                timestamp: "2020-01-01T00:00:00Z".to_string(),
+                latency_ms: 10.0,
+                success: true,
+                error_type: None,
+            },
+            LatencySampleRecord {
+                id: None,
+                host_id,
+                timestamp: current_timestamp_iso(),
+                latency_ms: 12.0,
+                success: true,
+                error_type: None,
+            },
+        ];
+        insert_latency_samples_batch(&mut conn, &samples).unwrap();
+
+        let (deleted_samples, _) = cleanup_old_records(&conn, 30).unwrap();
+        assert_eq!(deleted_samples, 1);
+
+        let remaining = get_recent_samples_for_host(&conn, host_id, 10).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].latency_ms, 12.0);
     }
 }

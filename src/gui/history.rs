@@ -1,9 +1,9 @@
 use eframe::egui::{self, Color32, RichText, Ui};
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 use std::path::Path;
 
 use crate::database::connection::open_optimized_connection;
-use crate::database::models::LatencySampleRecord;
+use crate::database::models::{HostRecord, LatencySampleRecord};
 use crate::database::repository::get_all_hosts;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,8 +46,10 @@ impl TimeFilter {
 pub struct HistoryState {
     pub selected_filter: TimeFilter,
     pub selected_host_id: Option<i64>,
+    pub cached_hosts: Vec<HostRecord>,
     pub cached_samples: Vec<LatencySampleRecord>,
     pub last_query_time: Option<std::time::Instant>,
+    pub last_error: Option<String>,
 }
 
 impl Default for HistoryState {
@@ -55,8 +57,10 @@ impl Default for HistoryState {
         Self {
             selected_filter: TimeFilter::Last15Minutes,
             selected_host_id: None,
+            cached_hosts: Vec::new(),
             cached_samples: Vec::new(),
             last_query_time: None,
+            last_error: None,
         }
     }
 }
@@ -65,24 +69,37 @@ pub fn render_history(ui: &mut Ui, state: &mut HistoryState, db_path: &Path) {
     ui.heading(RichText::new("Histórico de Latência").strong());
     ui.separator();
 
-    let conn = match open_optimized_connection(db_path) {
-        Ok(c) => c,
-        Err(e) => {
-            ui.label(format!("Erro ao acessar banco de dados: {}", e));
-            return;
-        }
-    };
+    // Carrega lista de hosts em cache na primeira abertura (evita abrir SQLite a cada frame)
+    let mut need_refresh = state.last_query_time.is_none();
 
-    let hosts = get_all_hosts(&conn).unwrap_or_default();
-    if state.selected_host_id.is_none() && !hosts.is_empty() {
-        state.selected_host_id = Some(hosts[0].id);
+    if need_refresh {
+        match open_optimized_connection(db_path) {
+            Ok(conn) => {
+                state.last_error = None;
+                state.cached_hosts = get_all_hosts(&conn).unwrap_or_default();
+                if state.selected_host_id.is_none() && !state.cached_hosts.is_empty() {
+                    state.selected_host_id = Some(state.cached_hosts[0].id);
+                }
+            }
+            Err(e) => {
+                state.last_error = Some(format!("Erro ao acessar banco de dados: {}", e));
+            }
+        }
+    }
+
+    if let Some(ref err) = state.last_error {
+        ui.label(RichText::new(err).color(Color32::from_rgb(231, 76, 60)));
+        if ui.button("🔄 Tentar Novamente").clicked() {
+            state.last_query_time = None;
+        }
+        return;
     }
 
     // Controles de Filtro
-    let mut need_refresh = false;
     ui.horizontal(|ui| {
         ui.label(RichText::new("Host:").strong());
-        let current_host_name = hosts
+        let current_host_name = state
+            .cached_hosts
             .iter()
             .find(|h| Some(h.id) == state.selected_host_id)
             .map(|h| h.name.as_str())
@@ -91,7 +108,7 @@ pub fn render_history(ui: &mut Ui, state: &mut HistoryState, db_path: &Path) {
         egui::ComboBox::from_id_salt("history_host_combo")
             .selected_text(current_host_name)
             .show_ui(ui, |ui| {
-                for host in &hosts {
+                for host in &state.cached_hosts {
                     let is_selected = state.selected_host_id == Some(host.id);
                     if ui.selectable_label(is_selected, &host.name).clicked() {
                         state.selected_host_id = Some(host.id);
@@ -128,14 +145,27 @@ pub fn render_history(ui: &mut Ui, state: &mut HistoryState, db_path: &Path) {
         }
     });
 
-    // Atualização da consulta
-    if let (true, Some(host_id)) = (
-        need_refresh || state.last_query_time.is_none(),
-        state.selected_host_id,
-    ) {
-        state.cached_samples =
-            query_samples(&conn, host_id, state.selected_filter).unwrap_or_default();
-        state.last_query_time = Some(std::time::Instant::now());
+    // Atualização da consulta apenas sob demanda (ou na primeira abertura)
+    if need_refresh {
+        match open_optimized_connection(db_path) {
+            Ok(conn) => {
+                state.last_error = None;
+                state.cached_hosts = get_all_hosts(&conn).unwrap_or_default();
+                if state.selected_host_id.is_none() && !state.cached_hosts.is_empty() {
+                    state.selected_host_id = Some(state.cached_hosts[0].id);
+                }
+                if let Some(host_id) = state.selected_host_id {
+                    state.cached_samples =
+                        query_samples(&conn, host_id, state.selected_filter).unwrap_or_default();
+                } else {
+                    state.cached_samples.clear();
+                }
+                state.last_query_time = Some(std::time::Instant::now());
+            }
+            Err(e) => {
+                state.last_error = Some(format!("Erro ao acessar banco de dados: {}", e));
+            }
+        }
     }
 
     ui.add_space(8.0);
@@ -241,24 +271,8 @@ fn query_samples(
     host_id: i64,
     filter: TimeFilter,
 ) -> Result<Vec<LatencySampleRecord>, rusqlite::Error> {
-    let sql = if let Some(modifier) = filter.sql_modifier() {
-        format!(
-            "SELECT id, host_id, timestamp, latency_ms, success, error_type
-             FROM latency_samples
-             WHERE host_id = ?1 AND timestamp >= datetime('now', '{}')
-             ORDER BY timestamp ASC",
-            modifier
-        )
-    } else {
-        "SELECT id, host_id, timestamp, latency_ms, success, error_type
-         FROM latency_samples
-         WHERE host_id = ?1
-         ORDER BY timestamp ASC"
-            .to_string()
-    };
-
-    let mut stmt = conn.prepare(&sql)?;
-    let iter = stmt.query_map([host_id], |row| {
+    let mut samples = Vec::new();
+    let map_row = |row: &rusqlite::Row<'_>| {
         Ok(LatencySampleRecord {
             id: Some(row.get(0)?),
             host_id: row.get(1)?,
@@ -267,11 +281,31 @@ fn query_samples(
             success: row.get::<_, i32>(4)? != 0,
             error_type: row.get(5)?,
         })
-    })?;
+    };
 
-    let mut samples = Vec::new();
-    for sample in iter {
-        samples.push(sample?);
+    if let Some(modifier) = filter.sql_modifier() {
+        let mut stmt = conn.prepare(
+            "SELECT id, host_id, timestamp, latency_ms, success, error_type
+             FROM latency_samples
+             WHERE host_id = ?1 AND timestamp >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?2)
+             ORDER BY timestamp ASC",
+        )?;
+        let iter = stmt.query_map(params![host_id, modifier], map_row)?;
+        for sample in iter {
+            samples.push(sample?);
+        }
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT id, host_id, timestamp, latency_ms, success, error_type
+             FROM latency_samples
+             WHERE host_id = ?1
+             ORDER BY timestamp ASC",
+        )?;
+        let iter = stmt.query_map(params![host_id], map_row)?;
+        for sample in iter {
+            samples.push(sample?);
+        }
     }
+
     Ok(samples)
 }

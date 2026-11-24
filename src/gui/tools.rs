@@ -9,15 +9,16 @@
 
 use eframe::egui::{self, Color32, RichText, Ui};
 use std::net::Ipv4Addr;
-use std::path::PathBuf;
+use std::path::Path;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::network::bufferbloat::{BufferbloatResult, run_bufferbloat_test};
 use crate::network::dns::{DnsBenchmarkResult, run_dns_benchmark};
 use crate::network::mtr::{MtrHop, run_mtr_cycle};
 use crate::network::mtu::{MtuTestResult, discover_path_mtu};
+use crate::network::pinger::resolve_target;
 use crate::network::stats::HostStats;
 use crate::network::types::NetworkDiagnostic;
 use crate::network::wan::WanInfo;
@@ -40,11 +41,14 @@ pub struct ToolsState {
     pub mtr_target_str: String,
     pub mtr_hops: Arc<Mutex<Vec<MtrHop>>>,
     pub mtr_running: Arc<AtomicBool>,
+    pub mtr_generation: Arc<AtomicU64>,
+    pub mtr_error: Option<String>,
 
     // 2. MTU State
     pub mtu_target_str: String,
     pub mtu_result: Arc<Mutex<Option<MtuTestResult>>>,
     pub mtu_running: Arc<AtomicBool>,
+    pub mtu_error: Option<String>,
 
     // 3. DNS State
     pub dns_results: Arc<Mutex<Vec<DnsBenchmarkResult>>>,
@@ -55,6 +59,7 @@ pub struct ToolsState {
     pub bufferbloat_result: Arc<Mutex<Option<BufferbloatResult>>>,
     pub bufferbloat_progress: Arc<Mutex<(f32, String)>>,
     pub bufferbloat_running: Arc<AtomicBool>,
+    pub bufferbloat_error: Option<String>,
 
     // 5. Laudo State
     pub generated_report: String,
@@ -68,10 +73,13 @@ impl Default for ToolsState {
             mtr_target_str: "1.1.1.1".to_string(),
             mtr_hops: Arc::new(Mutex::new(Vec::new())),
             mtr_running: Arc::new(AtomicBool::new(false)),
+            mtr_generation: Arc::new(AtomicU64::new(0)),
+            mtr_error: None,
 
             mtu_target_str: "1.1.1.1".to_string(),
             mtu_result: Arc::new(Mutex::new(None)),
             mtu_running: Arc::new(AtomicBool::new(false)),
+            mtu_error: None,
 
             dns_results: Arc::new(Mutex::new(Vec::new())),
             dns_running: Arc::new(AtomicBool::new(false)),
@@ -80,6 +88,7 @@ impl Default for ToolsState {
             bufferbloat_result: Arc::new(Mutex::new(None)),
             bufferbloat_progress: Arc::new(Mutex::new((0.0, "Pronto para iniciar".to_string()))),
             bufferbloat_running: Arc::new(AtomicBool::new(false)),
+            bufferbloat_error: None,
 
             generated_report: String::new(),
             report_status_message: None,
@@ -94,6 +103,7 @@ pub fn render_tools(
     stats_list: &[HostStats],
     wan_info: &Option<WanInfo>,
     wifi_info: &Option<WifiInfo>,
+    base_dir: &Path,
 ) {
     ui.heading(RichText::new("🛠 Ferramentas Profissionais de Diagnóstico").strong());
     ui.add_space(4.0);
@@ -129,7 +139,7 @@ pub fn render_tools(
             ToolsSubTab::Dns => render_dns_subtab(ui, state, diagnostic),
             ToolsSubTab::Bufferbloat => render_bufferbloat_subtab(ui, state),
             ToolsSubTab::Report => {
-                render_report_subtab(ui, state, diagnostic, stats_list, wan_info, wifi_info)
+                render_report_subtab(ui, state, diagnostic, stats_list, wan_info, wifi_info, base_dir)
             }
         });
 }
@@ -148,10 +158,10 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
         let is_running = state.mtr_running.load(Ordering::Relaxed);
 
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Destino (IPv4):").strong());
+            ui.label(RichText::new("Destino (IPv4 / Host):").strong());
             ui.add_enabled(
                 !is_running,
-                egui::TextEdit::singleline(&mut state.mtr_target_str).desired_width(140.0),
+                egui::TextEdit::singleline(&mut state.mtr_target_str).desired_width(160.0),
             );
 
             if !is_running {
@@ -160,34 +170,55 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
                         .color(Color32::from_rgb(46, 204, 113))
                         .strong(),
                 );
-                if start_btn.clicked()
-                    && let Ok(target) = Ipv4Addr::from_str(state.mtr_target_str.trim())
-                {
-                    state.mtr_running.store(true, Ordering::Relaxed);
-                    let hops_clone = state.mtr_hops.clone();
-                    let running_clone = state.mtr_running.clone();
+                if start_btn.clicked() {
+                    let target_input = state.mtr_target_str.trim();
+                    if let Some(target) = resolve_target(target_input, None) {
+                        state.mtr_error = None;
+                        let generation = state.mtr_generation.fetch_add(1, Ordering::SeqCst) + 1;
+                        state.mtr_running.store(true, Ordering::Relaxed);
+                        let hops_clone = state.mtr_hops.clone();
+                        let running_clone = state.mtr_running.clone();
+                        let gen_clone = state.mtr_generation.clone();
 
-                    // Limpa amostras anteriores
-                    if let Ok(mut h) = hops_clone.lock() {
-                        h.clear();
-                    }
-
-                    std::thread::spawn(move || {
-                        while running_clone.load(Ordering::Relaxed) {
-                            let mut local_hops = Vec::new();
-                            if let Ok(guard) = hops_clone.lock() {
-                                local_hops = guard.clone();
-                            }
-
-                            run_mtr_cycle(target, &mut local_hops, 30);
-
-                            if let Ok(mut guard) = hops_clone.lock() {
-                                *guard = local_hops;
-                            }
-
-                            std::thread::sleep(std::time::Duration::from_millis(1000));
+                        if let Ok(mut h) = hops_clone.lock() {
+                            h.clear();
                         }
-                    });
+
+                        std::thread::spawn(move || {
+                            while running_clone.load(Ordering::Relaxed)
+                                && gen_clone.load(Ordering::SeqCst) == generation
+                            {
+                                let mut local_hops = hops_clone
+                                    .lock()
+                                    .map(|g| g.clone())
+                                    .unwrap_or_default();
+
+                                run_mtr_cycle(target, &mut local_hops, 30, &running_clone);
+
+                                // Só grava o resultado se a geração ainda for a mesma (evita sobrepor "Limpar Amostras" ou novo alvo)
+                                if gen_clone.load(Ordering::SeqCst) == generation
+                                    && let Ok(mut guard) = hops_clone.lock()
+                                {
+                                    *guard = local_hops;
+                                }
+
+                                // Espera 1s com checagem rápida de parada a cada 100ms
+                                for _ in 0..10 {
+                                    if !running_clone.load(Ordering::Relaxed)
+                                        || gen_clone.load(Ordering::SeqCst) != generation
+                                    {
+                                        break;
+                                    }
+                                    std::thread::sleep(std::time::Duration::from_millis(100));
+                                }
+                            }
+                        });
+                    } else {
+                        state.mtr_error = Some(format!(
+                            "Endereço ou hostname '{}' inválido ou não resolvido.",
+                            target_input
+                        ));
+                    }
                 }
             } else if ui
                 .button(
@@ -203,9 +234,12 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
             if ui
                 .button(RichText::new("🔄 Limpar Amostras").strong())
                 .clicked()
-                && let Ok(mut h) = state.mtr_hops.lock()
             {
-                h.clear();
+                state.mtr_generation.fetch_add(1, Ordering::SeqCst);
+                state.mtr_running.store(false, Ordering::Relaxed);
+                if let Ok(mut h) = state.mtr_hops.lock() {
+                    h.clear();
+                }
             }
 
             if is_running {
@@ -216,6 +250,9 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
                 );
             }
         });
+        if let Some(ref err) = state.mtr_error {
+            ui.label(RichText::new(err).color(Color32::from_rgb(231, 76, 60)).strong());
+        }
     });
 
     ui.add_space(6.0);
@@ -404,20 +441,27 @@ fn render_mtu_subtab(ui: &mut Ui, state: &mut ToolsState) {
                         .color(Color32::from_rgb(52, 152, 219))
                         .strong(),
                 );
-                if start_btn.clicked()
-                    && let Ok(target) = Ipv4Addr::from_str(state.mtu_target_str.trim())
-                {
-                    state.mtu_running.store(true, Ordering::Relaxed);
-                    let result_clone = state.mtu_result.clone();
-                    let running_clone = state.mtu_running.clone();
+                if start_btn.clicked() {
+                    let target_input = state.mtu_target_str.trim();
+                    if let Some(target) = resolve_target(target_input, None) {
+                        state.mtu_error = None;
+                        state.mtu_running.store(true, Ordering::Relaxed);
+                        let result_clone = state.mtu_result.clone();
+                        let running_clone = state.mtu_running.clone();
 
-                    std::thread::spawn(move || {
-                        let res = discover_path_mtu(target);
-                        if let Ok(mut guard) = result_clone.lock() {
-                            *guard = Some(res);
-                        }
-                        running_clone.store(false, Ordering::Relaxed);
-                    });
+                        std::thread::spawn(move || {
+                            let res = discover_path_mtu(target);
+                            if let Ok(mut guard) = result_clone.lock() {
+                                *guard = Some(res);
+                            }
+                            running_clone.store(false, Ordering::Relaxed);
+                        });
+                    } else {
+                        state.mtu_error = Some(format!(
+                            "Endereço ou hostname '{}' inválido ou não resolvido.",
+                            target_input
+                        ));
+                    }
                 }
             } else {
                 ui.spinner();
@@ -427,6 +471,9 @@ fn render_mtu_subtab(ui: &mut Ui, state: &mut ToolsState) {
                 );
             }
         });
+        if let Some(ref err) = state.mtu_error {
+            ui.label(RichText::new(err).color(Color32::from_rgb(231, 76, 60)).strong());
+        }
     });
 
     ui.add_space(8.0);
@@ -596,27 +643,34 @@ fn render_bufferbloat_subtab(ui: &mut Ui, state: &mut ToolsState) {
                         .color(Color32::from_rgb(155, 89, 182))
                         .strong(),
                 );
-                if start_btn.clicked()
-                    && let Ok(target) = Ipv4Addr::from_str(state.bufferbloat_target_str.trim())
-                {
-                    state.bufferbloat_running.store(true, Ordering::Relaxed);
-                    let result_clone = state.bufferbloat_result.clone();
-                    let progress_clone = state.bufferbloat_progress.clone();
-                    let running_clone = state.bufferbloat_running.clone();
+                if start_btn.clicked() {
+                    let target_input = state.bufferbloat_target_str.trim();
+                    if let Some(target) = resolve_target(target_input, None) {
+                        state.bufferbloat_error = None;
+                        state.bufferbloat_running.store(true, Ordering::Relaxed);
+                        let result_clone = state.bufferbloat_result.clone();
+                        let progress_clone = state.bufferbloat_progress.clone();
+                        let running_clone = state.bufferbloat_running.clone();
 
-                    std::thread::spawn(move || {
-                        let prog_cb = progress_clone.clone();
-                        let res = run_bufferbloat_test(target, move |p, text| {
-                            if let Ok(mut guard) = prog_cb.lock() {
-                                *guard = (p, text.to_string());
+                        std::thread::spawn(move || {
+                            let prog_cb = progress_clone.clone();
+                            let res = run_bufferbloat_test(target, move |p, text| {
+                                if let Ok(mut guard) = prog_cb.lock() {
+                                    *guard = (p, text.to_string());
+                                }
+                            });
+
+                            if let Ok(mut guard) = result_clone.lock() {
+                                *guard = Some(res);
                             }
+                            running_clone.store(false, Ordering::Relaxed);
                         });
-
-                        if let Ok(mut guard) = result_clone.lock() {
-                            *guard = Some(res);
-                        }
-                        running_clone.store(false, Ordering::Relaxed);
-                    });
+                    } else {
+                        state.bufferbloat_error = Some(format!(
+                            "Endereço ou hostname '{}' inválido ou não resolvido.",
+                            target_input
+                        ));
+                    }
                 }
             } else {
                 let (prog, text) = state
@@ -629,6 +683,9 @@ fn render_bufferbloat_subtab(ui: &mut Ui, state: &mut ToolsState) {
                 ui.add(egui::ProgressBar::new(prog).show_percentage());
             }
         });
+        if let Some(ref err) = state.bufferbloat_error {
+            ui.label(RichText::new(err).color(Color32::from_rgb(231, 76, 60)).strong());
+        }
     });
 
     ui.add_space(8.0);
@@ -678,6 +735,7 @@ fn render_report_subtab(
     stats_list: &[HostStats],
     wan_info: &Option<WanInfo>,
     wifi_info: &Option<WifiInfo>,
+    base_dir: &Path,
 ) {
     ui.group(|ui| {
         ui.heading(RichText::new("Emissor de Laudo Técnico e Relatório de SLA").strong());
@@ -720,12 +778,11 @@ fn render_report_subtab(
                     .button(RichText::new("💾 Salvar Arquivo (laudo_rede.md)").strong())
                     .clicked()
                 {
-                    let path = PathBuf::from("laudo_rede.md");
+                    let path = base_dir.join("laudo_rede.md");
                     match save_report_to_file(&state.generated_report, &path) {
                         Ok(()) => {
                             state.report_status_message = Some((
-                                "Arquivo laudo_rede.md salvo com sucesso na pasta do executável!"
-                                    .to_string(),
+                                format!("Arquivo salvo com sucesso em: {}", path.display()),
                                 false,
                             ));
                         }

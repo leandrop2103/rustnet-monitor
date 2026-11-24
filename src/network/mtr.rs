@@ -5,6 +5,7 @@
 
 use std::mem::size_of;
 use std::net::Ipv4Addr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use windows_sys::Win32::Foundation::{GetLastError, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::NetworkManagement::IpHelper::{
@@ -155,7 +156,13 @@ pub fn probe_hop(target: Ipv4Addr, ttl: u8, timeout: Duration) -> (Option<Ipv4Ad
 }
 
 /// Executa um ciclo completo de sondagem MTR para até `max_hops` saltos.
-pub fn run_mtr_cycle(target: Ipv4Addr, hops: &mut Vec<MtrHop>, max_hops: u8) {
+/// Interrompe imediatamente se `running` se tornar `false`.
+pub fn run_mtr_cycle(
+    target: Ipv4Addr,
+    hops: &mut Vec<MtrHop>,
+    max_hops: u8,
+    running: &AtomicBool,
+) {
     if hops.is_empty() {
         for h in 1..=max_hops {
             hops.push(MtrHop::new(h));
@@ -165,6 +172,9 @@ pub fn run_mtr_cycle(target: Ipv4Addr, hops: &mut Vec<MtrHop>, max_hops: u8) {
     let timeout = Duration::from_millis(800);
 
     for hop_idx in 0..hops.len() {
+        if !running.load(Ordering::Relaxed) {
+            break;
+        }
         let ttl = (hop_idx + 1) as u8;
         let (ip_opt, rtt_opt, target_reached) = probe_hop(target, ttl, timeout);
 

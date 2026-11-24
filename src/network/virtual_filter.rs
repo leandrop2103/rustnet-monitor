@@ -1,4 +1,4 @@
-use crate::network::types::{AdapterType, NetworkAdapter};
+use crate::network::types::AdapterType;
 
 /// Avalia se um adaptador é virtual ou físico utilizando uma estratégia multinível:
 /// 1. Verificação de hardware NDIS (`HardwareInterface` bit).
@@ -91,22 +91,6 @@ pub fn classify_adapter(
 
     // Se chegou até aqui, é considerado uma interface física legítima (Ethernet ou Wi-Fi)
     (false, None)
-}
-
-/// Aplica a classificação em uma lista de adaptadores e atualiza os campos `is_virtual` e `virtual_reason`.
-#[allow(dead_code)]
-pub fn filter_and_classify_adapters(adapters: &mut [NetworkAdapter]) {
-    for adapter in adapters.iter_mut() {
-        let (is_virt, reason) = classify_adapter(
-            adapter.if_type,
-            adapter.is_hardware,
-            adapter.connector_present,
-            &adapter.friendly_name,
-            &adapter.description,
-        );
-        adapter.is_virtual = is_virt;
-        adapter.virtual_reason = reason;
-    }
 }
 
 #[cfg(test)]

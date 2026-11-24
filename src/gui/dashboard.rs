@@ -6,6 +6,19 @@ use crate::network::types::NetworkDiagnostic;
 use crate::network::wan::{NatType, WanInfo};
 use crate::network::wifi::WifiInfo;
 
+/// Renderiza o botão discreto de minimizar/expandir no canto direito do cabeçalho do cartão.
+fn render_collapse_button(ui: &mut Ui, expanded: &mut bool, hide_tip: &str, show_tip: &str) {
+    let icon = if *expanded { "▲" } else { "▼" };
+    let tip = if *expanded { hide_tip } else { show_tip };
+    if ui
+        .button(RichText::new(icon).size(13.0).strong())
+        .on_hover_text(tip)
+        .clicked()
+    {
+        *expanded = !*expanded;
+    }
+}
+
 /// Renderiza a aba principal do Dashboard com rolagem vertical suave e cartões minimizáveis.
 pub fn render_dashboard(
     ui: &mut Ui,
@@ -67,20 +80,12 @@ pub fn render_dashboard(
                         }
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let icon = if dashboard_cfg.interface_card_expanded { "▲" } else { "▼" };
-                            let tip = if dashboard_cfg.interface_card_expanded {
-                                "Minimizar (ocultar detalhes)"
-                            } else {
-                                "Expandir (mostrar detalhes)"
-                            };
-                            if ui
-                                .button(RichText::new(icon).size(13.0).strong())
-                                .on_hover_text(tip)
-                                .clicked()
-                            {
-                                dashboard_cfg.interface_card_expanded =
-                                    !dashboard_cfg.interface_card_expanded;
-                            }
+                            render_collapse_button(
+                                ui,
+                                &mut dashboard_cfg.interface_card_expanded,
+                                "Minimizar (ocultar detalhes)",
+                                "Expandir (mostrar detalhes)",
+                            );
 
                             ui.add_space(8.0);
 
@@ -176,20 +181,12 @@ pub fn render_dashboard(
                                 }
 
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    let icon = if dashboard_cfg.wifi_card_expanded { "▲" } else { "▼" };
-                                    let tip = if dashboard_cfg.wifi_card_expanded {
-                                        "Minimizar (ocultar detalhes)"
-                                    } else {
-                                        "Expandir (mostrar detalhes)"
-                                    };
-                                    if ui
-                                        .button(RichText::new(icon).size(13.0).strong())
-                                        .on_hover_text(tip)
-                                        .clicked()
-                                    {
-                                        dashboard_cfg.wifi_card_expanded =
-                                            !dashboard_cfg.wifi_card_expanded;
-                                    }
+                                    render_collapse_button(
+                                        ui,
+                                        &mut dashboard_cfg.wifi_card_expanded,
+                                        "Minimizar (ocultar detalhes)",
+                                        "Expandir (mostrar detalhes)",
+                                    );
 
                                     ui.add_space(8.0);
 
@@ -245,20 +242,12 @@ pub fn render_dashboard(
                                 }
 
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    let icon = if dashboard_cfg.wan_card_expanded { "▲" } else { "▼" };
-                                    let tip = if dashboard_cfg.wan_card_expanded {
-                                        "Minimizar (ocultar detalhes)"
-                                    } else {
-                                        "Expandir (mostrar detalhes)"
-                                    };
-                                    if ui
-                                        .button(RichText::new(icon).size(13.0).strong())
-                                        .on_hover_text(tip)
-                                        .clicked()
-                                    {
-                                        dashboard_cfg.wan_card_expanded =
-                                            !dashboard_cfg.wan_card_expanded;
-                                    }
+                                    render_collapse_button(
+                                        ui,
+                                        &mut dashboard_cfg.wan_card_expanded,
+                                        "Minimizar (ocultar detalhes)",
+                                        "Expandir (mostrar detalhes)",
+                                    );
 
                                     ui.add_space(8.0);
 
@@ -313,20 +302,12 @@ pub fn render_dashboard(
                         ui.heading(RichText::new("Hosts Monitorados em Tempo Real").strong());
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let icon = if dashboard_cfg.hosts_card_expanded { "▲" } else { "▼" };
-                            let tip = if dashboard_cfg.hosts_card_expanded {
-                                "Minimizar (ocultar tabela)"
-                            } else {
-                                "Expandir (mostrar tabela)"
-                            };
-                            if ui
-                                .button(RichText::new(icon).size(13.0).strong())
-                                .on_hover_text(tip)
-                                .clicked()
-                            {
-                                dashboard_cfg.hosts_card_expanded =
-                                    !dashboard_cfg.hosts_card_expanded;
-                            }
+                            render_collapse_button(
+                                ui,
+                                &mut dashboard_cfg.hosts_card_expanded,
+                                "Minimizar (ocultar tabela)",
+                                "Expandir (mostrar tabela)",
+                            );
 
                             ui.add_space(8.0);
 

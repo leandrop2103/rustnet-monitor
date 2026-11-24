@@ -81,7 +81,6 @@ pub fn probe_mtu_size(target: Ipv4Addr, total_packet_size: u16, timeout: Duratio
 pub fn discover_path_mtu(target: Ipv4Addr) -> MtuTestResult {
     let timeout = Duration::from_millis(600);
     let mut low = 1280u16; // MTU mínimo padrão IPv6 / VPN
-    let mut max_success = 1280u16;
     let mut tested_count = 0u32;
 
     // Primeiro teste rápido: o padrão Ethernet (1500) passa de primeira?
@@ -99,12 +98,13 @@ pub fn discover_path_mtu(target: Ipv4Addr) -> MtuTestResult {
 
     // Busca binária para encontrar o MTU exato
     let mut high = 1499u16;
+    let mut max_success: Option<u16> = None;
     while low <= high {
         let mid = low + (high - low) / 2;
         tested_count += 1;
 
         if probe_mtu_size(target, mid, timeout) {
-            max_success = mid;
+            max_success = Some(mid);
             low = mid + 1; // Tenta maior
         } else {
             if mid == 0 {
@@ -114,7 +114,18 @@ pub fn discover_path_mtu(target: Ipv4Addr) -> MtuTestResult {
         }
     }
 
-    let (classification, details) = match max_success {
+    let Some(best_mtu) = max_success else {
+        return MtuTestResult {
+            target,
+            max_mtu: 0,
+            classification: "Inalcançável / ICMP Bloqueado",
+            details: "Nenhuma sonda ICMP DF entre 1280 e 1500 bytes obteve resposta. O destino pode bloquear ICMP ou estar offline."
+                .to_string(),
+            packets_tested: tested_count,
+        };
+    };
+
+    let (classification, details) = match best_mtu {
         1500 => (
             "Ethernet Padrão (1500B)",
             "Caminho suporta quadros integrais de 1500 bytes.".to_string(),
@@ -127,21 +138,21 @@ pub fn discover_path_mtu(target: Ipv4Addr) -> MtuTestResult {
             "Túnel / VPN / MTU Reduzido",
             format!(
                 "MTU reduzido a {} bytes (típico de túneis WireGuard, IPsec ou VLANs).",
-                max_success
+                best_mtu
             ),
         ),
         _ => (
             "MTU Baixo / Restritivo",
             format!(
                 "MTU restrito a {} bytes. Pode causar retransmissões ou problemas de carregamento.",
-                max_success
+                best_mtu
             ),
         ),
     };
 
     MtuTestResult {
         target,
-        max_mtu: max_success,
+        max_mtu: best_mtu,
         classification,
         details,
         packets_tested: tested_count,

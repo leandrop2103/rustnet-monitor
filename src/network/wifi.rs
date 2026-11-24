@@ -106,7 +106,19 @@ type WlanFreeMemoryFunc = unsafe extern "system" fn(*mut c_void);
 /// Consulta a telemetria do adaptador Wi-Fi atualmente conectado (se existente).
 #[allow(clippy::manual_c_str_literals)]
 pub fn query_wifi_telemetry() -> Option<WifiInfo> {
+    use windows_sys::Win32::Foundation::FreeLibrary;
     use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
+
+    struct LibraryGuard(*mut c_void);
+    impl Drop for LibraryGuard {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe {
+                    FreeLibrary(self.0);
+                }
+            }
+        }
+    }
 
     unsafe {
         let dll_name = b"wlanapi.dll\0";
@@ -115,6 +127,7 @@ pub fn query_wifi_telemetry() -> Option<WifiInfo> {
             debug!("wlanapi.dll não disponível no sistema.");
             return None;
         }
+        let _lib_guard = LibraryGuard(module);
 
         let open_handle_ptr = GetProcAddress(module, b"WlanOpenHandle\0".as_ptr());
         let close_handle_ptr = GetProcAddress(module, b"WlanCloseHandle\0".as_ptr());
@@ -177,7 +190,10 @@ pub fn query_wifi_telemetry() -> Option<WifiInfo> {
                     &mut opcode_val,
                 );
 
-                if q_res == 0 && !data_ptr.is_null() {
+                if q_res == 0
+                    && !data_ptr.is_null()
+                    && (data_size as usize) >= std::mem::size_of::<WlanConnectionAttributes>()
+                {
                     let conn_attr = &*(data_ptr as *const WlanConnectionAttributes);
                     let assoc = &conn_attr.wlan_association_attributes;
 
@@ -199,7 +215,7 @@ pub fn query_wifi_telemetry() -> Option<WifiInfo> {
                         1 => "802.11 FHSS",
                         2 => "802.11 DSSS",
                         3 => "802.11 IR",
-                        4 => "802.11b (Wi-Fi 1)",
+                        4 => "802.11a (Wi-Fi 2)",
                         5 => "802.11b (Wi-Fi 1)",
                         6 => "802.11g (Wi-Fi 3)",
                         7 => "802.11n (Wi-Fi 4)",

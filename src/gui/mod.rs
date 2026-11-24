@@ -45,19 +45,14 @@ pub fn setup_fonts(ctx: &egui::Context) {
         }
     }
 
-    // 2. Carrega Segoe UI / Segoe Symbol do Windows como fallback secundário para emojis e símbolos
-    let fallback_paths = [
-        "C:\\Windows\\Fonts\\segoeui.ttf",
-        "C:\\Windows\\Fonts\\seguisym.ttf",
-        "C:\\Windows\\Fonts\\seguiemj.ttf",
+    // 2. Carrega Segoe UI / Segoe Symbol / Segoe Emoji do Windows como fallback secundário
+    let fallback_fonts = [
+        ("SegoeUI", "C:\\Windows\\Fonts\\segoeui.ttf"),
+        ("SegoeSymbol", "C:\\Windows\\Fonts\\seguisym.ttf"),
+        ("SegoeEmoji", "C:\\Windows\\Fonts\\seguiemj.ttf"),
     ];
-    for path in fallback_paths {
+    for (font_name, path) in fallback_fonts {
         if let Ok(font_data) = fs::read(path) {
-            let font_name = if path.contains("segoeui") {
-                "SegoeUI"
-            } else {
-                "SegoeSymbol"
-            };
             fonts.font_data.insert(
                 font_name.to_string(),
                 egui::FontData::from_owned(font_data).into(),

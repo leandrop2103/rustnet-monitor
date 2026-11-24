@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use crate::network::icmp::ping_ipv4;
+use crate::network::icmp::{PingStatus, ping_ipv4};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BufferbloatResult {
@@ -56,7 +56,7 @@ where
 
     for i in 0..8 {
         let res = ping_ipv4(target, Duration::from_millis(800));
-        if res.rtt_ms > 0.0 {
+        if res.status == PingStatus::Success {
             unloaded_samples.push(res.rtt_ms);
         }
         progress_cb(0.1 + (i as f32 * 0.025), "Medindo latência ociosa...");
@@ -114,7 +114,7 @@ where
         progress_cb(progress.min(0.95), "Medindo latência sob tráfego de carga...");
 
         let res = ping_ipv4(target, Duration::from_millis(800));
-        if res.rtt_ms > 0.0 {
+        if res.status == PingStatus::Success {
             loaded_samples.push(res.rtt_ms);
         }
         std::thread::sleep(Duration::from_millis(200));

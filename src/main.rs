@@ -241,18 +241,10 @@ fn persist_updates(db_handle: &Option<DatabaseHandle>, updates: &[PingUpdate]) {
                 .map(|ip| ip.to_string())
                 .unwrap_or_else(|| update.stats.target_str.clone());
 
-            let host_type = if update.host_name.to_lowercase().contains("gateway") {
-                "gateway"
-            } else if update.host_name.to_lowercase().contains("dns") {
-                "dns"
-            } else {
-                "custom"
-            };
-
             db.record_sample(
                 update.host_name.clone(),
                 addr,
-                host_type.to_string(),
+                update.host_type.clone(),
                 update.result.rtt_ms,
                 update.result.status == PingStatus::Success,
                 update.result.error_message.clone(),
@@ -284,8 +276,8 @@ fn main() {
     let diagnostic_only = args.iter().any(|a| a == "--diagnostic" || a == "-d");
     let once_only = args.iter().any(|a| a == "--once");
     let cli_mode = args.iter().any(|a| a == "--cli" || a == "-c");
-    let is_cli =
-        diagnostic_only || once_only || cli_mode || args.iter().any(|a| a == "--help" || a == "-h");
+    let show_help = args.iter().any(|a| a == "--help" || a == "-h");
+    let is_cli = diagnostic_only || once_only || cli_mode || show_help;
 
     // 1. Se executado via linha de comando (CLI/Diagnóstico), anexa ao console existente
     if is_cli {
@@ -336,6 +328,19 @@ fn main() {
         }
     }
 
+    if show_help {
+        println!("RustNet Monitor v{}", VERSION);
+        println!("Uso: RustNetMonitor.exe [OPÇÕES]");
+        println!();
+        println!("Opções:");
+        println!("  (sem argumentos)   Inicia a interface gráfica nativa (GUI)");
+        println!("  -d, --diagnostic   Exibe diagnóstico de interfaces e rotas no console e encerra");
+        println!("  --once             Executa um ciclo único de pings e exibe a tabela no console");
+        println!("  -c, --cli          Executa monitoramento contínuo em modo texto (Ctrl+C para sair)");
+        println!("  -h, --help         Exibe esta ajuda");
+        return;
+    }
+
     // 2. Carrega configurações locais portáteis (config.toml)
     let cwd_config = Path::new("config.toml");
     let config_path_candidate = if cwd_config.exists() {
@@ -379,8 +384,13 @@ fn main() {
         }
     };
 
-    // 3. Inicializa logging estruturado
-    let _log_guard = match init_logging("logs", &config.general.log_level) {
+    // 3. Inicializa logging estruturado na pasta do executável/configuração
+    let log_dir = config_path_buf
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("logs");
+    let log_dir_str = log_dir.to_string_lossy().into_owned();
+    let _log_guard = match init_logging(&log_dir_str, &config.general.log_level) {
         Ok(guard) => Some(guard),
         Err(e) => {
             eprintln!("Aviso: Falha ao inicializar logging em arquivo: {}", e);

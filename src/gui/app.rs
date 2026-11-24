@@ -59,6 +59,7 @@ pub struct RustNetApp {
     logo_texture: Option<egui::TextureHandle>,
     available_update: Arc<Mutex<Option<RemoteVersionInfo>>>,
     update_status: Arc<Mutex<UpdateStatus>>,
+    applied_theme: String,
 }
 
 impl RustNetApp {
@@ -98,23 +99,7 @@ impl RustNetApp {
         let alert_manager = AlertManager::new(config.general.sound_alerts);
 
         // Inicia verificação assíncrona de atualização no GitHub em background
-        let update_info_clone = available_update.clone();
-        let update_status_clone = update_status.clone();
-        std::thread::spawn(move || {
-            if let Ok(mut st) = update_status_clone.lock() {
-                *st = UpdateStatus::Checking;
-            }
-            if let Some(info) = crate::updater::check_for_updates() {
-                if let Ok(mut u) = update_info_clone.lock() {
-                    *u = Some(info);
-                }
-                if let Ok(mut st) = update_status_clone.lock() {
-                    *st = UpdateStatus::Idle;
-                }
-            } else if let Ok(mut st) = update_status_clone.lock() {
-                *st = UpdateStatus::UpToDate;
-            }
-        });
+        crate::updater::spawn_update_check(available_update.clone(), update_status.clone());
 
         // Inicia consulta assíncrona de Wi-Fi e WAN/CGNAT em background
         let wan_clone = wan_info.clone();
@@ -161,6 +146,19 @@ impl RustNetApp {
             logo_texture: None,
             available_update,
             update_status,
+            applied_theme: String::new(),
+        }
+    }
+
+    fn base_dir(&self) -> &Path {
+        self.config_path.parent().unwrap_or(Path::new("."))
+    }
+
+    fn resolved_db_path(&self) -> PathBuf {
+        if Path::new(&self.config.database.path).is_relative() {
+            self.base_dir().join(&self.config.database.path)
+        } else {
+            PathBuf::from(&self.config.database.path)
         }
     }
 
@@ -189,6 +187,8 @@ impl RustNetApp {
             }
         }
         self.stats_list = updated_stats;
+        self.history_points
+            .retain(|name, _| self.config.hosts.iter().any(|h| h.enabled && &h.name == name));
         self.active_hosts_in_chart
             .retain(|name, _| self.config.hosts.iter().any(|h| h.enabled && &h.name == name));
 
@@ -205,6 +205,7 @@ impl RustNetApp {
 impl Drop for RustNetApp {
     fn drop(&mut self) {
         let _ = self.config.save(&self.config_path);
+        self.tools_state.mtr_running.store(false, Ordering::Relaxed);
         if let Some(ref stop) = self.stop_signal {
             stop.store(true, Ordering::Relaxed);
         }
@@ -223,6 +224,12 @@ impl eframe::App for RustNetApp {
             while let Ok(update) = rx.try_recv() {
                 self.last_update_time = Some(Instant::now());
 
+                let is_enabled_host = self
+                    .config
+                    .hosts
+                    .iter()
+                    .any(|h| h.enabled && h.name == update.host_name);
+
                 // Atualiza ou insere nas estatísticas em memória apenas se o host estiver ativo
                 if let Some(existing) = self
                     .stats_list
@@ -230,25 +237,22 @@ impl eframe::App for RustNetApp {
                     .find(|s| s.name == update.host_name)
                 {
                     *existing = update.stats.clone();
-                } else if self
-                    .config
-                    .hosts
-                    .iter()
-                    .any(|h| h.enabled && h.name == update.host_name)
-                {
+                } else if is_enabled_host {
                     self.stats_list.push(update.stats.clone());
                 }
 
-                // Adiciona ponto na série temporal do gráfico
-                let elapsed_secs = self.start_time.elapsed().as_secs_f64();
-                let points = self
-                    .history_points
-                    .entry(update.host_name.clone())
-                    .or_default();
-                points.push((elapsed_secs, update.result.rtt_ms));
-                // Mantém até 300 amostras na memória para o gráfico em tempo real
-                if points.len() > 300 {
-                    points.remove(0);
+                // Adiciona ponto na série temporal do gráfico apenas para hosts ativos e pings bem-sucedidos
+                if is_enabled_host && update.result.status == PingStatus::Success {
+                    let elapsed_secs = self.start_time.elapsed().as_secs_f64();
+                    let points = self
+                        .history_points
+                        .entry(update.host_name.clone())
+                        .or_default();
+                    points.push((elapsed_secs, update.result.rtt_ms));
+                    // Mantém até 300 amostras na memória para o gráfico em tempo real
+                    if points.len() > 300 {
+                        points.remove(0);
+                    }
                 }
 
                 // Persiste amostra no SQLite via Database Worker
@@ -259,18 +263,10 @@ impl eframe::App for RustNetApp {
                         .map(|ip| ip.to_string())
                         .unwrap_or_else(|| update.stats.target_str.clone());
 
-                    let host_type = if update.host_name.to_lowercase().contains("gateway") {
-                        "gateway"
-                    } else if update.host_name.to_lowercase().contains("dns") {
-                        "dns"
-                    } else {
-                        "custom"
-                    };
-
                     db.record_sample(
                         update.host_name,
                         addr,
-                        host_type.to_string(),
+                        update.host_type,
                         update.result.rtt_ms,
                         update.result.status == PingStatus::Success,
                         update.result.error_message,
@@ -279,11 +275,14 @@ impl eframe::App for RustNetApp {
             }
         }
 
-        // 2. Aplica tema configurado (Dark / Light / System)
-        match self.config.general.theme.as_str() {
-            "dark" => ctx.set_visuals(egui::Visuals::dark()),
-            "light" => ctx.set_visuals(egui::Visuals::light()),
-            _ => {} // Mantém padrão do sistema
+        // 2. Aplica tema configurado somente quando houver alteração (evita churn visual por frame)
+        if self.applied_theme != self.config.general.theme {
+            match self.config.general.theme.as_str() {
+                "dark" => ctx.set_visuals(egui::Visuals::dark()),
+                "light" => ctx.set_visuals(egui::Visuals::light()),
+                _ => {} // Mantém padrão do sistema
+            }
+            self.applied_theme = self.config.general.theme.clone();
         }
 
         // Carrega o logotipo da aplicação na GPU se ainda não estiver carregado
@@ -302,16 +301,18 @@ impl eframe::App for RustNetApp {
             }
         }
 
-        // Verificação periódica de alertas sonoros
+        // Verificação periódica de alertas sonoros (apenas após o primeiro ciclo de amostras)
         self.alert_manager.enabled = self.config.general.sound_alerts;
-        let is_online = self.diagnostic.active_physical_interface.is_some()
-            && self.stats_list.iter().any(|s| s.last_rtt_ms.is_some());
-        let max_loss = self
-            .stats_list
-            .iter()
-            .map(|s| s.packet_loss_pct as f32)
-            .fold(0.0f32, f32::max);
-        let _ = self.alert_manager.check_and_alert(is_online, max_loss);
+        if self.last_update_time.is_some() {
+            let is_online = self.diagnostic.active_physical_interface.is_some()
+                && self.stats_list.iter().any(|s| s.last_rtt_ms.is_some());
+            let max_loss = self
+                .stats_list
+                .iter()
+                .map(|s| s.packet_loss_pct as f32)
+                .fold(0.0f32, f32::max);
+            let _ = self.alert_manager.check_and_alert(is_online, max_loss);
+        }
 
         let wan_val = self.wan_info.lock().ok().and_then(|g| g.clone());
         let wifi_val = self.wifi_info.lock().ok().and_then(|g| g.clone());
@@ -433,6 +434,7 @@ impl eframe::App for RustNetApp {
                 render_charts(ui, &self.history_points, &mut self.active_hosts_in_chart);
             }
             ActiveTab::Tools => {
+                let base_dir = self.base_dir().to_path_buf();
                 render_tools(
                     ui,
                     &mut self.tools_state,
@@ -440,22 +442,15 @@ impl eframe::App for RustNetApp {
                     &self.stats_list,
                     &wan_val,
                     &wifi_val,
+                    &base_dir,
                 );
             }
             ActiveTab::History => {
-                let db_path = if Path::new(&self.config.database.path).is_relative() {
-                    self.config_path.parent().unwrap_or(Path::new(".")).join(&self.config.database.path)
-                } else {
-                    PathBuf::from(&self.config.database.path)
-                };
+                let db_path = self.resolved_db_path();
                 render_history(ui, &mut self.history_state, &db_path);
             }
             ActiveTab::Events => {
-                let db_path = if Path::new(&self.config.database.path).is_relative() {
-                    self.config_path.parent().unwrap_or(Path::new(".")).join(&self.config.database.path)
-                } else {
-                    PathBuf::from(&self.config.database.path)
-                };
+                let db_path = self.resolved_db_path();
                 render_events(ui, &mut self.events_state, &db_path);
             }
             ActiveTab::Settings => {

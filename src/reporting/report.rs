@@ -107,7 +107,11 @@ pub fn generate_technical_report(data: &ReportData) -> String {
         0.0
     };
 
-    if global_loss_pct == 0.0 {
+    if total_sent == 0 {
+        out.push_str("[STATUS: SEM DADOS - AGUARDANDO AMOSTRAS]\n");
+        out.push_str("- Nenhum pacote ICMP foi contabilizado até o momento.\n");
+        out.push_str("- Aguarde alguns ciclos de monitoramento antes de emitir o parecer de SLA.\n");
+    } else if global_loss_pct == 0.0 {
         out.push_str("[STATUS: CONFORME - REDE EXCELENTE]\n");
         out.push_str("- Perda de pacotes global registrada em 0.0%.\n");
         out.push_str("- Enlace estável com baixa dispersão de jitter.\n");

@@ -11,11 +11,10 @@ use crate::config::settings::{AppConfig, HostConfig};
 use crate::network::icmp::{PingResult, PingStatus, ping_ipv4};
 use crate::network::stats::HostStats;
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PingUpdate {
-    pub host_index: usize,
     pub host_name: String,
+    pub host_type: String,
     pub result: PingResult,
     pub stats: HostStats,
 }
@@ -55,7 +54,6 @@ pub struct PingerService {
     config: AppConfig,
     dynamic_gateway: Option<Ipv4Addr>,
     hosts: Vec<(HostConfig, HostStats)>,
-    #[allow(dead_code)]
     stop_signal: Arc<AtomicBool>,
 }
 
@@ -102,18 +100,12 @@ impl PingerService {
         self.config = new_config;
     }
 
-    /// Atualiza o IP do gateway padrão dinâmico se tiver ocorrido mudança.
-    #[allow(dead_code)]
-    pub fn update_gateway(&mut self, new_gw: Option<Ipv4Addr>) {
-        self.dynamic_gateway = new_gw;
-    }
-
     /// Executa uma única rodada de pings síncrona sobre todos os hosts ativos.
     pub fn probe_all(&mut self) -> Vec<PingUpdate> {
         let timeout = Duration::from_millis(self.config.monitoring.timeout_ms);
         let mut updates = Vec::new();
 
-        for (idx, (cfg, stats)) in self.hosts.iter_mut().enumerate() {
+        for (cfg, stats) in self.hosts.iter_mut() {
             let target_ip = if cfg.is_dynamic_gateway {
                 self.dynamic_gateway
             } else {
@@ -134,14 +126,34 @@ impl PingerService {
             stats.record_sample(result.clone());
 
             updates.push(PingUpdate {
-                host_index: idx,
                 host_name: cfg.name.clone(),
+                host_type: cfg.host_type.clone(),
                 result,
                 stats: stats.clone(),
             });
         }
 
         updates
+    }
+
+    /// Processa um comando recebido na thread do worker.
+    /// Retorna `true` se o ciclo de espera deve ser interrompido para sondagem imediata.
+    fn handle_command(&mut self, cmd: PingerCommand, interval: &mut Duration) -> bool {
+        match cmd {
+            PingerCommand::ResetStats => {
+                info!("Pinger: reinicializando estatísticas acumuladas de todos os hosts...");
+                for (_, stats) in self.hosts.iter_mut() {
+                    stats.reset();
+                }
+                false
+            }
+            PingerCommand::UpdateConfig(new_cfg) => {
+                info!("Pinger: atualizando lista de hosts e parâmetros a quente...");
+                *interval = Duration::from_secs(new_cfg.monitoring.interval_secs.max(1));
+                self.update_config(new_cfg);
+                true
+            }
+        }
     }
 
     /// Obtém referência para as estatísticas atuais de todos os hosts monitorados.
@@ -151,7 +163,6 @@ impl PingerService {
 
     /// Inicia a thread de monitoramento contínuo em background.
     /// Retorna um canal de dados, um canal de comandos, um sinal de parada e o manipulador da thread.
-    #[allow(dead_code)]
     pub fn start_worker(
         mut self,
     ) -> (
@@ -175,21 +186,7 @@ impl PingerService {
             while !thread_stop.load(Ordering::Relaxed) {
                 // Processa eventuais comandos pendentes antes de pingar
                 while let Ok(cmd) = cmd_rx.try_recv() {
-                    match cmd {
-                        PingerCommand::ResetStats => {
-                            info!(
-                                "Pinger: reinicializando estatísticas acumuladas de todos os hosts..."
-                            );
-                            for (_, stats) in self.hosts.iter_mut() {
-                                stats.reset();
-                            }
-                        }
-                        PingerCommand::UpdateConfig(new_cfg) => {
-                            info!("Pinger: atualizando lista de hosts e parâmetros a quente...");
-                            interval = Duration::from_secs(new_cfg.monitoring.interval_secs.max(1));
-                            self.update_config(new_cfg);
-                        }
-                    }
+                    self.handle_command(cmd, &mut interval);
                 }
 
                 let updates = self.probe_all();
@@ -208,21 +205,8 @@ impl PingerService {
                     }
                     let mut should_break = false;
                     while let Ok(cmd) = cmd_rx.try_recv() {
-                        match cmd {
-                            PingerCommand::ResetStats => {
-                                info!(
-                                    "Pinger: reinicializando estatísticas acumuladas de todos os hosts..."
-                                );
-                                for (_, stats) in self.hosts.iter_mut() {
-                                    stats.reset();
-                                }
-                            }
-                            PingerCommand::UpdateConfig(new_cfg) => {
-                                info!("Pinger: atualizando lista de hosts e parâmetros a quente...");
-                                interval = Duration::from_secs(new_cfg.monitoring.interval_secs.max(1));
-                                self.update_config(new_cfg);
-                                should_break = true;
-                            }
+                        if self.handle_command(cmd, &mut interval) {
+                            should_break = true;
                         }
                     }
                     if should_break {
@@ -244,23 +228,25 @@ mod tests {
 
     #[test]
     fn test_pinger_update_config() {
-        let mut config = AppConfig::default();
-        config.hosts = vec![
-            HostConfig {
-                name: "Host 1".to_string(),
-                address: "1.1.1.1".to_string(),
-                host_type: "custom".to_string(),
-                enabled: true,
-                is_dynamic_gateway: false,
-            },
-            HostConfig {
-                name: "Host 2".to_string(),
-                address: "8.8.8.8".to_string(),
-                host_type: "custom".to_string(),
-                enabled: true,
-                is_dynamic_gateway: false,
-            },
-        ];
+        let mut config = AppConfig {
+            hosts: vec![
+                HostConfig {
+                    name: "Host 1".to_string(),
+                    address: "1.1.1.1".to_string(),
+                    host_type: "custom".to_string(),
+                    enabled: true,
+                    is_dynamic_gateway: false,
+                },
+                HostConfig {
+                    name: "Host 2".to_string(),
+                    address: "8.8.8.8".to_string(),
+                    host_type: "custom".to_string(),
+                    enabled: true,
+                    is_dynamic_gateway: false,
+                },
+            ],
+            ..Default::default()
+        };
 
         let mut pinger = PingerService::new(config.clone(), None);
         assert_eq!(pinger.hosts.len(), 2);

@@ -24,9 +24,6 @@ pub enum DbCommand {
     },
     RecordEvent(NetworkEventRecord),
     ClearSamples,
-    #[allow(dead_code)]
-    Cleanup,
-    Flush,
     Stop,
 }
 
@@ -72,11 +69,6 @@ impl DatabaseHandle {
             details,
         };
         let _ = self.sender.send(DbCommand::RecordEvent(event));
-    }
-
-    #[allow(dead_code)]
-    pub fn flush(&self) {
-        let _ = self.sender.send(DbCommand::Flush);
     }
 
     pub fn clear_samples(&self) {
@@ -213,13 +205,6 @@ fn run_worker_loop(db_path: impl AsRef<Path>, rx: Receiver<DbCommand>, retention
                         }
                     }
                 }
-                DbCommand::Cleanup => {
-                    let _ = cleanup_old_records(&conn, retention_days);
-                }
-                DbCommand::Flush => {
-                    flush_batch(&mut conn, &mut pending_samples);
-                    last_flush = Instant::now();
-                }
                 DbCommand::Stop => {
                     info!("Comando de encerramento recebido no Database Worker.");
                     break;
@@ -257,6 +242,11 @@ fn flush_batch(conn: &mut rusqlite::Connection, samples: &mut Vec<LatencySampleR
         }
         Err(e) => {
             error!("Erro ao gravar lote de amostras no SQLite: {}", e);
+            // Evita crescimento ilimitado de memória caso ocorra falha persistente em disco
+            if samples.len() > 500 {
+                let excess = samples.len() - 500;
+                samples.drain(0..excess);
+            }
         }
     }
 }

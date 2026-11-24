@@ -26,12 +26,16 @@ pub fn render_charts(
 
     ui.separator();
 
+    // Ordena os nomes de hosts para manter ordem e cores determinísticas entre frames
+    let mut sorted_hosts: Vec<&String> = history_points.keys().collect();
+    sorted_hosts.sort();
+
     // Filtros de seleção de hosts visíveis
     ui.horizontal_wrapped(|ui| {
         ui.label(RichText::new("Hosts exibidos:").strong());
-        for host_name in history_points.keys() {
-            let is_active = active_hosts.entry(host_name.clone()).or_insert(true);
-            ui.checkbox(is_active, host_name);
+        for host_name in &sorted_hosts {
+            let is_active = active_hosts.entry((*host_name).clone()).or_insert(true);
+            ui.checkbox(is_active, *host_name);
         }
     });
 
@@ -41,21 +45,22 @@ pub fn render_charts(
         .legend(Legend::default())
         .y_axis_label("Latência (ms)")
         .x_axis_label("Tempo decorrido (segundos)")
-        .height(ui.available_height() - 20.0);
+        .height((ui.available_height() - 20.0).max(120.0));
 
     plot.show(ui, |plot_ui| {
-        for (i, (host_name, points)) in history_points.iter().enumerate() {
-            if !*active_hosts.get(host_name).unwrap_or(&true) {
+        for (i, host_name) in sorted_hosts.iter().enumerate() {
+            if !*active_hosts.get(*host_name).unwrap_or(&true) {
                 continue;
             }
+            if let Some(points) = history_points.get(*host_name) {
+                let color = HOST_COLORS[i % HOST_COLORS.len()];
+                let plot_points: PlotPoints = points.iter().map(|&(x, y)| [x, y]).collect();
+                let line = Line::new((*host_name).clone(), plot_points)
+                    .color(color)
+                    .width(2.0);
 
-            let color = HOST_COLORS[i % HOST_COLORS.len()];
-            let plot_points: PlotPoints = points.iter().map(|&(x, y)| [x, y]).collect();
-            let line = Line::new(host_name.clone(), plot_points)
-                .color(color)
-                .width(2.0);
-
-            plot_ui.line(line);
+                plot_ui.line(line);
+            }
         }
     });
 }

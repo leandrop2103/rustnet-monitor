@@ -14,10 +14,4 @@ pub mod virtual_filter;
 pub mod wan;
 pub mod wifi;
 
-#[allow(unused_imports)]
-pub use adapters::get_network_adapters;
 pub use detector::inspect_network;
-#[allow(unused_imports)]
-pub use routes::get_default_routes;
-#[allow(unused_imports)]
-pub use types::{AdapterType, NetworkAdapter, NetworkDiagnostic, OperStatus, RouteEntry};

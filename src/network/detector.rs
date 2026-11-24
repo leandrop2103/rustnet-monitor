@@ -25,10 +25,13 @@ pub fn inspect_network() -> Result<NetworkDiagnostic, DetectorError> {
 
     // Vincula o nome amigável do adaptador às entradas da tabela de rotas
     for route in routes.iter_mut() {
-        if let Some(adapter) = adapters
-            .iter()
-            .find(|a| a.if_index == route.interface_index)
-        {
+        if let Some(adapter) = adapters.iter().find(|a| {
+            if route.is_ipv4 {
+                a.if_index == route.interface_index
+            } else {
+                a.ipv6_if_index == route.interface_index || a.if_index == route.interface_index
+            }
+        }) {
             route.interface_alias = Some(adapter.friendly_name.clone());
         }
     }

@@ -14,6 +14,7 @@
 use std::fs::{self, File};
 use std::io::{BufWriter, Read, Write};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
 pub const GITHUB_REPO: &str = "lpl2103/rustnet-monitor";
@@ -65,7 +66,7 @@ pub fn is_newer_version(remote: &str, current: &str) -> bool {
     }
 }
 
-/// Remove arquivos temporários de versões anteriores (`.exe.old`).
+/// Remove arquivos temporários de versões anteriores (`.exe.old` e `.exe.new` órfãos).
 pub fn clean_old_update_files() {
     if let Ok(current_exe) = std::env::current_exe() {
         let old_exe = current_exe.with_extension("exe.old");
@@ -81,7 +82,33 @@ pub fn clean_old_update_files() {
                 std::thread::sleep(std::time::Duration::from_millis(200));
             }
         }
+        let orphan_new = current_exe.with_extension("exe.new");
+        if orphan_new.exists() {
+            let _ = fs::remove_file(&orphan_new);
+        }
     }
+}
+
+/// Dispara verificação assíncrona de atualizações no GitHub em thread dedicada.
+pub fn spawn_update_check(
+    available_update: Arc<Mutex<Option<RemoteVersionInfo>>>,
+    update_status: Arc<Mutex<UpdateStatus>>,
+) {
+    std::thread::spawn(move || {
+        if let Ok(mut st) = update_status.lock() {
+            *st = UpdateStatus::Checking;
+        }
+        if let Some(info) = check_for_updates() {
+            if let Ok(mut u) = available_update.lock() {
+                *u = Some(info);
+            }
+            if let Ok(mut st) = update_status.lock() {
+                *st = UpdateStatus::Idle;
+            }
+        } else if let Ok(mut st) = update_status.lock() {
+            *st = UpdateStatus::UpToDate;
+        }
+    });
 }
 
 /// Verifica se existe uma nova versão disponível no GitHub Releases.
@@ -211,18 +238,18 @@ where
         let mut writer = BufWriter::new(file);
         let mut reader = response.into_reader();
         let mut buffer = [0u8; 16384];
-        let mut total_read = 0;
+        let mut total_read = 0usize;
         let mut header_check = [0u8; 2];
-        let mut checked_header = false;
 
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(n) => {
-                    if !checked_header && n >= 2 {
-                        header_check[0] = buffer[0];
-                        header_check[1] = buffer[1];
-                        checked_header = true;
+                    // Captura com segurança os 2 primeiros bytes do arquivo mesmo se o primeiro read retornar 1 byte
+                    if total_read < 2 {
+                        let copy_len = (2 - total_read).min(n);
+                        header_check[total_read..total_read + copy_len]
+                            .copy_from_slice(&buffer[..copy_len]);
                     }
 
                     writer

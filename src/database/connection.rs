@@ -25,7 +25,7 @@ pub fn open_optimized_connection<P: AsRef<Path>>(path: P) -> Result<Connection, 
 }
 
 /// Cria uma conexão em memória otimizada para a execução de testes unitários.
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn open_memory_connection() -> Result<Connection, rusqlite::Error> {
     let conn = Connection::open_in_memory()?;
     conn.execute_batch(

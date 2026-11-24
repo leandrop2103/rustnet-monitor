@@ -1,23 +1,9 @@
 use std::net::Ipv4Addr;
 use std::time::Duration;
-use thiserror::Error;
 use windows_sys::Win32::Foundation::{GetLastError, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     ICMP_ECHO_REPLY, IcmpCloseHandle, IcmpCreateFile, IcmpSendEcho,
 };
-
-#[allow(dead_code)]
-#[derive(Error, Debug)]
-pub enum IcmpError {
-    #[error("Falha ao abrir handle ICMP (IcmpCreateFile)")]
-    CreateHandleFailed,
-    #[error("Timeout ao aguardar resposta ICMP ({0} ms)")]
-    Timeout(u32),
-    #[error("Host inalcançável (código de status ICMP: {0})")]
-    Unreachable(u32),
-    #[error("Erro Win32 na chamada IcmpSendEcho (código de erro: {0})")]
-    Win32(u32),
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PingStatus {

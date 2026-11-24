@@ -21,13 +21,6 @@ pub enum DnsStatus {
     Error(String),
 }
 
-impl DnsStatus {
-    #[allow(dead_code)]
-    pub fn is_ok(&self) -> bool {
-        matches!(self, DnsStatus::Ok)
-    }
-}
-
 /// Constrói um pacote de consulta DNS RFC 1035 para registro do tipo A.
 pub fn build_dns_query(domain: &str, transaction_id: u16) -> Vec<u8> {
     let mut packet = Vec::with_capacity(64);
@@ -45,9 +38,9 @@ pub fn build_dns_query(domain: &str, transaction_id: u16) -> Vec<u8> {
         if label.is_empty() {
             continue;
         }
-        let len = label.len().min(63) as u8;
-        packet.push(len);
-        packet.extend_from_slice(label.as_bytes());
+        let len = label.len().min(63);
+        packet.push(len as u8);
+        packet.extend_from_slice(&label.as_bytes()[..len]);
     }
     packet.push(0x00); // Fim do QNAME
 
@@ -81,7 +74,10 @@ pub fn probe_dns_server(server_ip: Ipv4Addr, domain: &str, timeout: Duration) ->
 
     let mut buf = [0u8; 512];
     match socket.recv_from(&mut buf) {
-        Ok((len, _)) => {
+        Ok((len, src_addr)) => {
+            if src_addr.ip() != dest_addr.ip() {
+                return (None, DnsStatus::Error("Resposta recebida de IP inesperado".to_string()));
+            }
             let elapsed = start.elapsed().as_secs_f64() * 1000.0;
             if len >= 12 {
                 // Valida Transaction ID retornado
@@ -150,5 +146,13 @@ mod tests {
         assert_eq!(packet[1], 0x34);
         // Label 'example' = 7 bytes
         assert_eq!(packet[12], 7);
+
+        // Label com mais de 63 bytes deve ser truncado para 63 bytes sem corromper o pacote
+        let long_label = "a".repeat(80);
+        let domain = format!("{}.com", long_label);
+        let long_pkt = build_dns_query(&domain, 0x5678);
+        assert_eq!(long_pkt[12], 63);
+        // Header (12) + len(1) + 63 + len(1) + "com"(3) + null(1) + qtype(2) + qclass(2) = 85
+        assert_eq!(long_pkt.len(), 85);
     }
 }

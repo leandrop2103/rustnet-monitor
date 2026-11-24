@@ -8,8 +8,6 @@ use crate::updater::{RemoteVersionInfo, UpdateStatus};
 pub struct SettingsState {
     pub new_host_name: String,
     pub new_host_address: String,
-    #[allow(dead_code)]
-    pub new_host_type: String,
     pub status_message: Option<(String, bool)>, // (mensagem, is_error)
     pub show_reset_confirmation: bool,
     pub clear_db_history: bool,
@@ -22,7 +20,6 @@ impl Default for SettingsState {
         Self {
             new_host_name: String::new(),
             new_host_address: String::new(),
-            new_host_type: "custom".to_string(),
             status_message: None,
             show_reset_confirmation: false,
             clear_db_history: true,
@@ -133,9 +130,12 @@ pub fn render_settings(
                     );
                     ui.add(
                         egui::DragValue::new(&mut config.thresholds.yellow_max_ms)
-                            .range(20..=500)
+                            .range((config.thresholds.green_max_ms + 5)..=500)
                             .suffix(" ms"),
                     );
+                    if config.thresholds.yellow_max_ms <= config.thresholds.green_max_ms {
+                        config.thresholds.yellow_max_ms = config.thresholds.green_max_ms + 5;
+                    }
                 });
                 ui.label(
                     RichText::new(
@@ -233,7 +233,19 @@ pub fn render_settings(
                     if ui.button("➕ Adicionar").clicked() {
                         let name = state.new_host_name.trim();
                         let addr = state.new_host_address.trim();
-                        if !name.is_empty() && !addr.is_empty() {
+                        if name.is_empty() || addr.is_empty() {
+                            state.status_message =
+                                Some(("Preencha o nome e o endereço do host.".to_string(), true));
+                        } else if config
+                            .hosts
+                            .iter()
+                            .any(|h| h.name.eq_ignore_ascii_case(name))
+                        {
+                            state.status_message = Some((
+                                format!("Já existe um host cadastrado com o nome '{}'.", name),
+                                true,
+                            ));
+                        } else {
                             config.hosts.push(HostConfig {
                                 name: name.to_string(),
                                 address: addr.to_string(),
@@ -256,9 +268,6 @@ pub fn render_settings(
                                     false,
                                 ));
                             }
-                        } else {
-                            state.status_message =
-                                Some(("Preencha o nome e o endereço do host.".to_string(), true));
                         }
                     }
                 });
@@ -379,23 +388,10 @@ pub fn render_settings(
                                 .button(RichText::new("🔍 Verificar Atualizações").strong())
                                 .clicked()
                         {
-                            let upd_clone = available_update.clone();
-                            let status_clone = update_status.clone();
-                            std::thread::spawn(move || {
-                                if let Ok(mut st) = status_clone.lock() {
-                                    *st = crate::updater::UpdateStatus::Checking;
-                                }
-                                if let Some(info) = crate::updater::check_for_updates() {
-                                    if let Ok(mut u) = upd_clone.lock() {
-                                        *u = Some(info);
-                                    }
-                                    if let Ok(mut st) = status_clone.lock() {
-                                        *st = crate::updater::UpdateStatus::Idle;
-                                    }
-                                } else if let Ok(mut st) = status_clone.lock() {
-                                    *st = crate::updater::UpdateStatus::UpToDate;
-                                }
-                            });
+                            crate::updater::spawn_update_check(
+                                available_update.clone(),
+                                update_status.clone(),
+                            );
                         }
                     }
                     crate::updater::UpdateStatus::Checking => {
@@ -415,25 +411,10 @@ pub fn render_settings(
                                     .strong(),
                             );
                             if ui.button("🔍 Checar Novamente").clicked() {
-                                let upd_clone = available_update.clone();
-                                let status_clone = update_status.clone();
-                                std::thread::spawn(move || {
-                                    if let Ok(mut st) = status_clone.lock() {
-                                        *st = crate::updater::UpdateStatus::Checking;
-                                    }
-                                    if let Some(info) = crate::updater::check_for_updates() {
-                                        if let Ok(mut u) = upd_clone.lock() {
-                                            *u = Some(info);
-                                        }
-                                        if let Ok(mut st) = status_clone.lock() {
-                                            *st = crate::updater::UpdateStatus::Idle;
-                                        }
-                                    } else {
-                                        if let Ok(mut st) = status_clone.lock() {
-                                            *st = crate::updater::UpdateStatus::UpToDate;
-                                        }
-                                    }
-                                });
+                                crate::updater::spawn_update_check(
+                                    available_update.clone(),
+                                    update_status.clone(),
+                                );
                             }
                         });
                     }

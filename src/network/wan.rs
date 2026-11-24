@@ -30,15 +30,12 @@ impl NatType {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct WanInfo {
     pub public_ip: Option<String>,
     pub isp_organization: Option<String>,
     pub city_country: Option<String>,
     pub nat_type: NatType,
-    pub local_ip: Option<String>,
-    pub last_checked_secs_ago: Option<u64>,
 }
 
 impl Default for WanInfo {
@@ -48,8 +45,6 @@ impl Default for WanInfo {
             isp_organization: None,
             city_country: None,
             nat_type: NatType::Unknown,
-            local_ip: None,
-            last_checked_secs_ago: None,
         }
     }
 }
@@ -168,8 +163,6 @@ pub fn query_wan_info(local_ip_opt: Option<Ipv4Addr>) -> WanInfo {
         isp_organization,
         city_country,
         nat_type,
-        local_ip: local_ip_opt.map(|ip| ip.to_string()),
-        last_checked_secs_ago: Some(0),
     }
 }
 
