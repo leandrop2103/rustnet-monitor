@@ -81,19 +81,35 @@ $sizeMb = [math]::Round($fileInfo.Length / 1MB, 2)
 Write-Host "      Tamanho final do executavel: $sizeKb KB ($sizeMb MB)" -ForegroundColor Green
 
 # 4. Commit e sincronizacao no Git (Branch main)
-Write-Host "[4/6] Efetuando commit e push no Git (origem: lpl2103/rustnet-monitor)..." -ForegroundColor Yellow
+Write-Host "[4/6] Efetuando commit e push no Git (origem: leandrop2103/rustnet-monitor)..." -ForegroundColor Yellow
 git add Cargo.toml Cargo.lock RustNetMonitor.exe src/ assets/ config.toml README.md AGENTS.md GEMINI.md build.ps1 build_and_release.ps1 build.rs .gitignore
 git commit -m "release: v$version - $Notes"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Falha no git commit!"
+    exit 1
+}
 git push origin main
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Falha no git push origin main!"
+    exit 1
+}
 
 # 5. Criacao da Tag no Git
 Write-Host "[5/6] Criando e enviando Tag v$version..." -ForegroundColor Yellow
 git tag -a "v$version" -m "Release v$version"
 git push origin "v$version"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Falha ao enviar Tag v$version!"
+    exit 1
+}
 
 # 6. Publicacao da Release no GitHub Releases via GitHub CLI (gh)
 Write-Host "[6/6] Publicando Release no GitHub Releases..." -ForegroundColor Yellow
-gh release create "v$version" $destExe --repo "lpl2103/rustnet-monitor" --title "RustNet Monitor v$version" --notes "$Notes"
+gh release create "v$version" $destExe --repo "leandrop2103/rustnet-monitor" --title "RustNet Monitor v$version" --notes "$Notes"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Falha ao publicar Release no GitHub Releases!"
+    exit 1
+}
 
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host " [SUCESSO] Versao v$version publicada no GitHub Releases!" -ForegroundColor Green

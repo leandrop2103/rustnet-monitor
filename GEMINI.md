@@ -61,13 +61,13 @@ Execute o script oficial de build e release:
    ```
 5. Publicação no GitHub Releases com o executável anexado:
    ```powershell
-   gh release create "v<VERSÃO>" "RustNetMonitor.exe" --repo "lpl2103/rustnet-monitor" --title "RustNet Monitor v<VERSÃO>" --notes "<Notas>"
+   gh release create "v<VERSÃO>" "RustNetMonitor.exe" --repo "leandrop2103/rustnet-monitor" --title "RustNet Monitor v<VERSÃO>" --notes "<Notas>"
    ```
 
 ---
 
 ## 🔄 5. Mecanismo de Auto-Atualização (`src/updater.rs`)
-- O aplicativo verifica a existência de novas releases via API do GitHub (`lpl2103/rustnet-monitor/releases/latest`).
+- O aplicativo verifica a existência de novas releases via API do GitHub (`leandrop2103/rustnet-monitor/releases/latest`).
 - Download em streaming com verificação do cabeçalho PE Windows (`MZ` / `0x4D, 0x5A`).
 - Troca a quente (`RustNetMonitor.exe.new` -> `RustNetMonitor.exe`, backup temporário em `RustNetMonitor.exe.old`).
 - Reinício do processo com o parâmetro `--cleanup-old` para limpeza do backup antigo.

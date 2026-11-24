@@ -65,7 +65,7 @@ O **RustNet Monitor** é uma aplicação desktop nativa desenvolvida em **Rust**
 - Caixa de confirmação de segurança com opção de excluir também as amostras antigas do banco SQLite (`rustnet.db`).
 
 ### 🚀 Atualização Automática Integrada (Hot Reload)
-- O aplicativo verifica em background novas versões publicadas no **GitHub Releases** (`lpl2103/rustnet-monitor`).
+- O aplicativo verifica em background novas versões publicadas no **GitHub Releases** (`leandrop2103/rustnet-monitor`).
 - Download em streaming com validação do cabeçalho de executável PE (`MZ`).
 - Substituição a quente em tempo de execução (`RustNetMonitor.exe.new` -> `RustNetMonitor.exe`) com reinicialização automática e limpeza do backup anterior (`--cleanup-old`).
 - Interface gráfica com barra de progresso em tempo real e notas da versão.

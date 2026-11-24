@@ -1,7 +1,7 @@
 //! # Módulo de Atualização Automática (`updater.rs`)
 //!
 //! Gerencia a verificação de versões, download e substituição a quente
-//! do executável no Windows a partir das Releases do GitHub (`lpl2103/rustnet-monitor`).
+//! do executável no Windows a partir das Releases do GitHub (`leandrop2103/rustnet-monitor`).
 //!
 //! ## Técnica de Substituição Quente no Windows:
 //! No Windows, um executável em execução não pode ser sobrescrito diretamente.
@@ -17,11 +17,11 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
-pub const GITHUB_REPO: &str = "lpl2103/rustnet-monitor";
+pub const GITHUB_REPO: &str = "leandrop2103/rustnet-monitor";
 pub const GITHUB_API_LATEST: &str =
-    "https://api.github.com/repos/lpl2103/rustnet-monitor/releases/latest";
+    "https://api.github.com/repos/leandrop2103/rustnet-monitor/releases/latest";
 pub const GITHUB_DIRECT_DOWNLOAD: &str =
-    "https://github.com/lpl2103/rustnet-monitor/releases/latest/download/RustNetMonitor.exe";
+    "https://github.com/leandrop2103/rustnet-monitor/releases/latest/download/RustNetMonitor.exe";
 
 /// Informações sobre uma versão remota disponível
 #[derive(Debug, Clone)]

@@ -2043,7 +2043,7 @@ dependencies = [
 
 [[package]]
 name = "rustnet-monitor"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "eframe",
  "egui_plot",

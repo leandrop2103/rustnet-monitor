@@ -1,6 +1,7 @@
 [general]
 start_with_windows = false
 minimize_to_tray = true
+sound_alerts = true
 theme = "system"
 language = "pt-BR"
 log_level = "info"
@@ -38,3 +39,9 @@ address = "1.1.1.1"
 host_type = "dns"
 enabled = true
 is_dynamic_gateway = false
+
+[dashboard]
+interface_card_expanded = true
+wifi_card_expanded = true
+wan_card_expanded = true
+hosts_card_expanded = true
