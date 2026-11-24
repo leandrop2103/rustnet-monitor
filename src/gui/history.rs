@@ -5,6 +5,7 @@ use std::path::Path;
 use crate::database::connection::open_optimized_connection;
 use crate::database::models::{HostRecord, LatencySampleRecord};
 use crate::database::repository::get_all_hosts;
+use crate::i18n::Translations;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimeFilter {
@@ -30,15 +31,15 @@ impl TimeFilter {
         }
     }
 
-    pub fn label(&self) -> &'static str {
+    pub fn label(&self, t: &Translations) -> &'static str {
         match self {
-            TimeFilter::Last5Minutes => "Últimos 5 minutos",
-            TimeFilter::Last15Minutes => "Últimos 15 minutos",
-            TimeFilter::LastHour => "Última hora",
-            TimeFilter::Last6Hours => "Últimas 6 horas",
-            TimeFilter::Last24Hours => "Últimas 24 horas",
-            TimeFilter::Last7Days => "Últimos 7 dias",
-            TimeFilter::All => "Todo o histórico",
+            TimeFilter::Last5Minutes => t.history_filter_5m,
+            TimeFilter::Last15Minutes => t.history_filter_15m,
+            TimeFilter::LastHour => t.history_filter_1h,
+            TimeFilter::Last6Hours => t.history_filter_6h,
+            TimeFilter::Last24Hours => t.history_filter_24h,
+            TimeFilter::Last7Days => t.history_filter_7d,
+            TimeFilter::All => t.history_filter_all,
         }
     }
 }
@@ -65,8 +66,8 @@ impl Default for HistoryState {
     }
 }
 
-pub fn render_history(ui: &mut Ui, state: &mut HistoryState, db_path: &Path) {
-    ui.heading(RichText::new("Histórico de Latência").strong());
+pub fn render_history(ui: &mut Ui, state: &mut HistoryState, db_path: &Path, t: &Translations) {
+    ui.heading(RichText::new(t.history_title).strong());
     ui.separator();
 
     // Carrega lista de hosts em cache na primeira abertura (evita abrir SQLite a cada frame)
@@ -82,14 +83,14 @@ pub fn render_history(ui: &mut Ui, state: &mut HistoryState, db_path: &Path) {
                 }
             }
             Err(e) => {
-                state.last_error = Some(format!("Erro ao acessar banco de dados: {}", e));
+                state.last_error = Some(format!("{} {}", t.history_db_err_prefix, e));
             }
         }
     }
 
     if let Some(ref err) = state.last_error {
         ui.label(RichText::new(err).color(Color32::from_rgb(231, 76, 60)));
-        if ui.button("🔄 Tentar Novamente").clicked() {
+        if ui.button(t.history_retry).clicked() {
             state.last_query_time = None;
         }
         return;
@@ -97,13 +98,13 @@ pub fn render_history(ui: &mut Ui, state: &mut HistoryState, db_path: &Path) {
 
     // Controles de Filtro
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Host:").strong());
+        ui.label(RichText::new(t.history_host).strong());
         let current_host_name = state
             .cached_hosts
             .iter()
             .find(|h| Some(h.id) == state.selected_host_id)
             .map(|h| h.name.as_str())
-            .unwrap_or("Selecione");
+            .unwrap_or(t.history_select);
 
         egui::ComboBox::from_id_salt("history_host_combo")
             .selected_text(current_host_name)
@@ -118,9 +119,9 @@ pub fn render_history(ui: &mut Ui, state: &mut HistoryState, db_path: &Path) {
             });
 
         ui.add_space(16.0);
-        ui.label(RichText::new("Período:").strong());
+        ui.label(RichText::new(t.history_period).strong());
         egui::ComboBox::from_id_salt("history_time_combo")
-            .selected_text(state.selected_filter.label())
+            .selected_text(state.selected_filter.label(t))
             .show_ui(ui, |ui| {
                 let filters = [
                     TimeFilter::Last5Minutes,
@@ -133,14 +134,14 @@ pub fn render_history(ui: &mut Ui, state: &mut HistoryState, db_path: &Path) {
                 ];
                 for f in filters {
                     let is_selected = state.selected_filter == f;
-                    if ui.selectable_label(is_selected, f.label()).clicked() {
+                    if ui.selectable_label(is_selected, f.label(t)).clicked() {
                         state.selected_filter = f;
                         need_refresh = true;
                     }
                 }
             });
 
-        if ui.button("🔄 Atualizar").clicked() {
+        if ui.button(t.history_refresh).clicked() {
             need_refresh = true;
         }
     });
@@ -163,7 +164,7 @@ pub fn render_history(ui: &mut Ui, state: &mut HistoryState, db_path: &Path) {
                 state.last_query_time = Some(std::time::Instant::now());
             }
             Err(e) => {
-                state.last_error = Some(format!("Erro ao acessar banco de dados: {}", e));
+                state.last_error = Some(format!("{} {}", t.history_db_err_prefix, e));
             }
         }
     }
@@ -202,14 +203,14 @@ pub fn render_history(ui: &mut Ui, state: &mut HistoryState, db_path: &Path) {
                 .num_columns(5)
                 .spacing([28.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label(RichText::new("Amostras:").strong());
-                    ui.label(RichText::new("Latência Média:").strong());
-                    ui.label(RichText::new("Menor Latência:").strong());
-                    ui.label(RichText::new("Maior Latência:").strong());
-                    ui.label(RichText::new("Perda de Pacotes:").strong());
+                    ui.label(RichText::new(t.history_samples).strong());
+                    ui.label(RichText::new(t.history_avg_latency).strong());
+                    ui.label(RichText::new(t.history_min_latency).strong());
+                    ui.label(RichText::new(t.history_max_latency).strong());
+                    ui.label(RichText::new(t.history_packet_loss).strong());
                     ui.end_row();
 
-                    ui.label(format!("{} registradas", total_samples));
+                    ui.label(format!("{} {}", total_samples, t.history_recorded_suffix));
                     ui.label(format!("{:.1} ms", avg_rtt));
                     ui.label(format!("{:.0} ms", min_rtt));
                     ui.label(format!("{:.0} ms", max_rtt));
@@ -219,8 +220,11 @@ pub fn render_history(ui: &mut Ui, state: &mut HistoryState, db_path: &Path) {
                         Color32::from_rgb(46, 204, 113)
                     };
                     ui.label(
-                        RichText::new(format!("{:.1}% ({} perdidos)", loss_pct, lost_samples))
-                            .color(loss_color),
+                        RichText::new(format!(
+                            "{:.1}% ({} {})",
+                            loss_pct, lost_samples, t.history_lost_suffix
+                        ))
+                        .color(loss_color),
                     );
                     ui.end_row();
                 });
@@ -229,7 +233,7 @@ pub fn render_history(ui: &mut Ui, state: &mut HistoryState, db_path: &Path) {
     ui.add_space(8.0);
 
     // Tabela de Amostras
-    ui.heading(RichText::new("Registros de Amostras").strong());
+    ui.heading(RichText::new(t.history_records_title).strong());
 
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
@@ -238,10 +242,10 @@ pub fn render_history(ui: &mut Ui, state: &mut HistoryState, db_path: &Path) {
                 .striped(true)
                 .spacing([24.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label(RichText::new("Data / Hora (UTC)").strong());
-                    ui.label(RichText::new("Latência").strong());
-                    ui.label(RichText::new("Status").strong());
-                    ui.label(RichText::new("Detalhe / Erro").strong());
+                    ui.label(RichText::new(t.history_col_datetime).strong());
+                    ui.label(RichText::new(t.history_col_latency).strong());
+                    ui.label(RichText::new(t.history_col_status).strong());
+                    ui.label(RichText::new(t.history_col_detail).strong());
                     ui.end_row();
 
                     for sample in state.cached_samples.iter().rev().take(200) {
@@ -249,12 +253,13 @@ pub fn render_history(ui: &mut Ui, state: &mut HistoryState, db_path: &Path) {
                         if sample.success {
                             ui.label(format!("{:.1} ms", sample.latency_ms));
                             ui.label(
-                                RichText::new("SUCCESS").color(Color32::from_rgb(46, 204, 113)),
+                                RichText::new(t.history_status_ok)
+                                    .color(Color32::from_rgb(46, 204, 113)),
                             );
                         } else {
                             ui.label(RichText::new("-").weak());
                             ui.label(
-                                RichText::new("TIMEOUT / ERRO")
+                                RichText::new(t.history_status_err)
                                     .color(Color32::from_rgb(231, 76, 60))
                                     .strong(),
                             );

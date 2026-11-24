@@ -66,6 +66,12 @@ if (-not (Test-Path $sourceExe)) {
 
 # 3. Copia do binario para a raiz do projeto (RustNetMonitor.exe)
 $destExe = "RustNetMonitor.exe"
+$runningProc = Get-Process -Name "RustNetMonitor" -ErrorAction SilentlyContinue
+if ($runningProc) {
+    Write-Host "[3/6] Encerrando instancia em execucao de RustNetMonitor.exe..." -ForegroundColor Yellow
+    $runningProc | Stop-Process -Force
+    Start-Sleep -Milliseconds 500
+}
 Write-Host "[3/6] Sincronizando binario na raiz do projeto ($destExe)..." -ForegroundColor Yellow
 Copy-Item -Path $sourceExe -Destination $destExe -Force
 

@@ -1,6 +1,7 @@
 use eframe::egui::{self, Color32, RichText, Ui};
 
 use crate::config::settings::{DashboardConfig, LatencyThresholds};
+use crate::i18n::Translations;
 use crate::network::stats::{HostStats, LatencyQuality};
 use crate::network::types::NetworkDiagnostic;
 use crate::network::wan::{NatType, WanInfo};
@@ -20,6 +21,7 @@ fn render_collapse_button(ui: &mut Ui, expanded: &mut bool, hide_tip: &str, show
 }
 
 /// Renderiza a aba principal do Dashboard com rolagem vertical suave e cartões minimizáveis.
+#[allow(clippy::too_many_arguments)]
 pub fn render_dashboard(
     ui: &mut Ui,
     dashboard_cfg: &mut DashboardConfig,
@@ -28,6 +30,7 @@ pub fn render_dashboard(
     thresholds: &LatencyThresholds,
     wan_info: &Option<WanInfo>,
     wifi_info: &Option<WifiInfo>,
+    t: &Translations,
 ) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
@@ -36,11 +39,11 @@ pub fn render_dashboard(
 
             // Barra Superior de Controles Rápidos do Dashboard
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Visão Geral da Rede").heading().strong());
+                ui.label(RichText::new(t.dash_overview_title).heading().strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .small_button("▼ Expandir Todos")
-                        .on_hover_text("Expandir todos os cartões do dashboard")
+                        .small_button(t.dash_expand_all)
+                        .on_hover_text(t.dash_expand_all_tip)
                         .clicked()
                     {
                         dashboard_cfg.interface_card_expanded = true;
@@ -50,8 +53,8 @@ pub fn render_dashboard(
                     }
 
                     if ui
-                        .small_button("▲ Recolher Todos")
-                        .on_hover_text("Recolher todos os cartões (deixar apenas títulos)")
+                        .small_button(t.dash_collapse_all)
+                        .on_hover_text(t.dash_collapse_all_tip)
                         .clicked()
                     {
                         dashboard_cfg.interface_card_expanded = false;
@@ -71,7 +74,7 @@ pub fn render_dashboard(
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("🖧").size(18.0));
-                        ui.heading(RichText::new("Interface de Rede Ativa").strong());
+                        ui.heading(RichText::new(t.dash_card_interface).strong());
 
                         if !dashboard_cfg.interface_card_expanded
                             && let Some(iface) = &diagnostic.active_physical_interface
@@ -83,8 +86,8 @@ pub fn render_dashboard(
                             render_collapse_button(
                                 ui,
                                 &mut dashboard_cfg.interface_card_expanded,
-                                "Minimizar (ocultar detalhes)",
-                                "Expandir (mostrar detalhes)",
+                                t.dash_minimize_tip,
+                                t.dash_expand_tip,
                             );
 
                             ui.add_space(8.0);
@@ -92,14 +95,14 @@ pub fn render_dashboard(
                             if let Some(iface) = &diagnostic.active_physical_interface {
                                 let (color, text) = match iface.oper_status {
                                     crate::network::types::OperStatus::Up => {
-                                        (Color32::from_rgb(46, 204, 113), "● CONECTADO")
+                                        (Color32::from_rgb(46, 204, 113), t.dash_connected)
                                     }
-                                    _ => (Color32::from_rgb(231, 76, 60), "● DESCONECTADO"),
+                                    _ => (Color32::from_rgb(231, 76, 60), t.dash_disconnected),
                                 };
                                 ui.label(RichText::new(text).color(color).strong());
                             } else {
                                 ui.label(
-                                    RichText::new("● SEM INTERFACE FÍSICA")
+                                    RichText::new(t.dash_no_physical_iface)
                                         .color(Color32::from_rgb(231, 76, 60))
                                         .strong(),
                                 );
@@ -116,48 +119,48 @@ pub fn render_dashboard(
                                 .spacing([24.0, 8.0])
                                 .striped(false)
                                 .show(ui, |ui| {
-                                    ui.label(RichText::new("Adaptador:").strong());
+                                    ui.label(RichText::new(t.dash_adapter).strong());
                                     ui.label(&iface.friendly_name);
 
-                                    ui.label(RichText::new("Descrição:").strong());
+                                    ui.label(RichText::new(t.dash_description).strong());
                                     ui.label(&iface.description);
                                     ui.end_row();
 
-                                    ui.label(RichText::new("Tipo:").strong());
-                                    ui.label(format!("{} (Física)", iface.if_type));
+                                    ui.label(RichText::new(t.dash_type).strong());
+                                    ui.label(format!("{} {}", iface.if_type, t.dash_physical_suffix));
 
-                                    ui.label(RichText::new("Velocidade do Link:").strong());
+                                    ui.label(RichText::new(t.dash_link_speed).strong());
                                     ui.label(iface.formatted_speed());
                                     ui.end_row();
 
-                                    ui.label(RichText::new("Endereço IPv4:").strong());
+                                    ui.label(RichText::new(t.dash_ipv4).strong());
                                     ui.label(if iface.ipv4_addresses.is_empty() {
-                                        "Não atribuído".to_string()
+                                        t.dash_unassigned.to_string()
                                     } else {
                                         iface.ipv4_addresses.join(", ")
                                     });
 
-                                    ui.label(RichText::new("Gateway Padrão:").strong());
+                                    ui.label(RichText::new(t.dash_gateway).strong());
                                     ui.label(if iface.gateway_addresses.is_empty() {
-                                        "Nenhum".to_string()
+                                        t.dash_none.to_string()
                                     } else {
                                         iface.gateway_addresses.join(", ")
                                     });
                                     ui.end_row();
 
-                                    ui.label(RichText::new("Endereço MAC:").strong());
-                                    ui.label(iface.mac_address.as_deref().unwrap_or("Não disponível"));
+                                    ui.label(RichText::new(t.dash_mac).strong());
+                                    ui.label(iface.mac_address.as_deref().unwrap_or(t.dash_unavailable));
 
-                                    ui.label(RichText::new("Servidores DNS:").strong());
+                                    ui.label(RichText::new(t.dash_dns).strong());
                                     ui.label(if iface.dns_addresses.is_empty() {
-                                        "Nenhum".to_string()
+                                        t.dash_none.to_string()
                                     } else {
                                         iface.dns_addresses.join(", ")
                                     });
                                     ui.end_row();
                                 });
                         } else {
-                            ui.label("Nenhuma interface física conectada foi identificada pelo sistema.");
+                            ui.label(t.dash_no_physical_iface_msg);
                         }
                     }
                 });
@@ -174,7 +177,7 @@ pub fn render_dashboard(
                         cols[col_idx].group(|ui| {
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new("📶").size(18.0));
-                                ui.heading(RichText::new("Telemetria Wi-Fi (802.11)").strong());
+                                ui.heading(RichText::new(t.dash_card_wifi).strong());
 
                                 if !dashboard_cfg.wifi_card_expanded {
                                     ui.label(RichText::new(format!("({})", wifi.ssid)).weak());
@@ -184,20 +187,20 @@ pub fn render_dashboard(
                                     render_collapse_button(
                                         ui,
                                         &mut dashboard_cfg.wifi_card_expanded,
-                                        "Minimizar (ocultar detalhes)",
-                                        "Expandir (mostrar detalhes)",
+                                        t.dash_minimize_tip,
+                                        t.dash_expand_tip,
                                     );
 
                                     ui.add_space(8.0);
 
-                                    let badge_color = match wifi.signal_quality_pct {
-                                        75..=100 => Color32::from_rgb(46, 204, 113),
-                                        50..=74 => Color32::from_rgb(52, 152, 219),
-                                        25..=49 => Color32::from_rgb(241, 196, 15),
-                                        _ => Color32::from_rgb(231, 76, 60),
+                                    let (badge_color, badge_label) = match wifi.signal_quality_pct {
+                                        75..=100 => (Color32::from_rgb(46, 204, 113), t.dash_wifi_excellent),
+                                        50..=74 => (Color32::from_rgb(52, 152, 219), t.dash_wifi_good),
+                                        25..=49 => (Color32::from_rgb(241, 196, 15), t.dash_wifi_fair),
+                                        _ => (Color32::from_rgb(231, 76, 60), t.dash_wifi_weak),
                                     };
                                     ui.label(
-                                        RichText::new(format!("● {}", wifi.signal_badge()))
+                                        RichText::new(format!("● {}", badge_label))
                                             .color(badge_color)
                                             .strong(),
                                     );
@@ -208,21 +211,27 @@ pub fn render_dashboard(
                                 ui.separator();
 
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new("SSID (Rede):").strong());
+                                    ui.label(RichText::new(t.dash_wifi_ssid).strong());
                                     ui.label(RichText::new(&wifi.ssid).strong());
                                 });
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new("BSSID (AP):").strong());
+                                    ui.label(RichText::new(t.dash_wifi_bssid).strong());
                                     ui.label(RichText::new(&wifi.bssid).monospace());
                                 });
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new("Sinal:").strong());
+                                    ui.label(RichText::new(t.dash_wifi_signal).strong());
                                     ui.label(format!("{}% ({} dBm)", wifi.signal_quality_pct, wifi.rssi_dbm));
-                                    ui.label(RichText::new(format!("| Padrão: {}", wifi.phy_type)).weak());
+                                    ui.label(
+                                        RichText::new(format!("| {} {}", t.dash_wifi_standard, wifi.phy_type))
+                                            .weak(),
+                                    );
                                 });
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new("Taxa Negociada:").strong());
-                                    ui.label(format!("{:.0} Mbps (Tx) / {:.0} Mbps (Rx)", wifi.tx_rate_mbps, wifi.rx_rate_mbps));
+                                    ui.label(RichText::new(t.dash_wifi_rate).strong());
+                                    ui.label(format!(
+                                        "{:.0} Mbps (Tx) / {:.0} Mbps (Rx)",
+                                        wifi.tx_rate_mbps, wifi.rx_rate_mbps
+                                    ));
                                 });
                             }
                         });
@@ -233,7 +242,7 @@ pub fn render_dashboard(
                         cols[col_idx].group(|ui| {
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new("🌍").size(18.0));
-                                ui.heading(RichText::new("WAN Pública & CGNAT").strong());
+                                ui.heading(RichText::new(t.dash_card_wan).strong());
 
                                 if !dashboard_cfg.wan_card_expanded
                                     && let Some(ref ip) = wan.public_ip
@@ -245,19 +254,29 @@ pub fn render_dashboard(
                                     render_collapse_button(
                                         ui,
                                         &mut dashboard_cfg.wan_card_expanded,
-                                        "Minimizar (ocultar detalhes)",
-                                        "Expandir (mostrar detalhes)",
+                                        t.dash_minimize_tip,
+                                        t.dash_expand_tip,
                                     );
 
                                     ui.add_space(8.0);
 
                                     let (nat_color, nat_text) = match wan.nat_type {
-                                        NatType::DirectPublicIp => (Color32::from_rgb(46, 204, 113), "IP PÚBLICO"),
-                                        NatType::CgnatRfc6598 => (Color32::from_rgb(243, 156, 18), "CGNAT DETECTADO"),
-                                        NatType::DoubleNatRfc1918 => (Color32::from_rgb(52, 152, 219), "NAT PRIVADO"),
-                                        NatType::Unknown => (Color32::GRAY, "N/D"),
+                                        NatType::DirectPublicIp => {
+                                            (Color32::from_rgb(46, 204, 113), t.dash_wan_public_ip_badge)
+                                        }
+                                        NatType::CgnatRfc6598 => {
+                                            (Color32::from_rgb(243, 156, 18), t.dash_wan_cgnat_badge)
+                                        }
+                                        NatType::DoubleNatRfc1918 => {
+                                            (Color32::from_rgb(52, 152, 219), t.dash_wan_private_nat_badge)
+                                        }
+                                        NatType::Unknown => (Color32::GRAY, t.dash_wan_na),
                                     };
-                                    ui.label(RichText::new(format!("● {}", nat_text)).color(nat_color).strong());
+                                    ui.label(
+                                        RichText::new(format!("● {}", nat_text))
+                                            .color(nat_color)
+                                            .strong(),
+                                    );
                                 });
                             });
 
@@ -265,24 +284,36 @@ pub fn render_dashboard(
                                 ui.separator();
 
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new("IP Externo:").strong());
+                                    ui.label(RichText::new(t.dash_wan_external_ip).strong());
                                     ui.label(
-                                        RichText::new(wan.public_ip.as_deref().unwrap_or("Aguardando..."))
-                                            .strong()
-                                            .monospace(),
+                                        RichText::new(
+                                            wan.public_ip.as_deref().unwrap_or(t.dash_wan_waiting),
+                                        )
+                                        .strong()
+                                        .monospace(),
                                     );
                                 });
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new("Provedor / ASN:").strong());
-                                    ui.label(wan.isp_organization.as_deref().unwrap_or("Não identificado"));
+                                    ui.label(RichText::new(t.dash_wan_isp).strong());
+                                    ui.label(
+                                        wan.isp_organization
+                                            .as_deref()
+                                            .unwrap_or(t.dash_wan_not_identified),
+                                    );
                                 });
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new("Localidade:").strong());
-                                    ui.label(wan.city_country.as_deref().unwrap_or("N/D"));
+                                    ui.label(RichText::new(t.dash_wan_location).strong());
+                                    ui.label(wan.city_country.as_deref().unwrap_or(t.dash_wan_na));
                                 });
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new("Topologia:").strong());
-                                    ui.label(wan.nat_type.description());
+                                    ui.label(RichText::new(t.dash_wan_topology).strong());
+                                    let nat_desc = match wan.nat_type {
+                                        NatType::DirectPublicIp => t.dash_wan_desc_direct,
+                                        NatType::CgnatRfc6598 => t.dash_wan_desc_cgnat,
+                                        NatType::DoubleNatRfc1918 => t.dash_wan_desc_double_nat,
+                                        NatType::Unknown => t.dash_wan_desc_unknown,
+                                    };
+                                    ui.label(nat_desc);
                                 });
                             }
                         });
@@ -299,23 +330,26 @@ pub fn render_dashboard(
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("📊").size(18.0));
-                        ui.heading(RichText::new("Hosts Monitorados em Tempo Real").strong());
+                        ui.heading(RichText::new(t.dash_card_hosts).strong());
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             render_collapse_button(
                                 ui,
                                 &mut dashboard_cfg.hosts_card_expanded,
-                                "Minimizar (ocultar tabela)",
-                                "Expandir (mostrar tabela)",
+                                t.dash_minimize_table_tip,
+                                t.dash_expand_table_tip,
                             );
 
                             ui.add_space(8.0);
 
                             let active_count = stats_list.len();
                             ui.label(
-                                RichText::new(format!("● {} HOSTS ATIVOS", active_count))
-                                    .color(Color32::from_rgb(46, 204, 113))
-                                    .strong(),
+                                RichText::new(format!(
+                                    "● {} {}",
+                                    active_count, t.dash_active_hosts_badge
+                                ))
+                                .color(Color32::from_rgb(46, 204, 113))
+                                .strong(),
                             );
                         });
                     });
@@ -325,12 +359,7 @@ pub fn render_dashboard(
 
                         if stats_list.is_empty() {
                             ui.add_space(10.0);
-                            ui.label(
-                                RichText::new(
-                                    "Nenhum host habilitado no momento. Acesse a aba ⚙ Configurações para adicionar ou ativar hosts.",
-                                )
-                                .weak(),
-                            );
+                            ui.label(RichText::new(t.dash_no_hosts_enabled).weak());
                             ui.add_space(10.0);
                         } else {
                             egui::ScrollArea::horizontal()
@@ -341,32 +370,32 @@ pub fn render_dashboard(
                                         .spacing([18.0, 10.0])
                                         .show(ui, |ui| {
                                             // Cabeçalho da Tabela
-                                            ui.label(RichText::new("Host").strong());
-                                            ui.label(RichText::new("Endereço").strong());
-                                            ui.label(RichText::new("Latência Atual").strong());
-                                            ui.label(RichText::new("Média").strong());
-                                            ui.label(RichText::new("Mínima").strong());
-                                            ui.label(RichText::new("Máxima").strong());
-                                            ui.label(RichText::new("Jitter (RFC 3550)").strong());
-                                            ui.label(RichText::new("Perda %").strong());
-                                            ui.label(RichText::new("Enviados").strong());
-                                            ui.label(RichText::new("Status").strong());
+                                            ui.label(RichText::new(t.col_host).strong());
+                                            ui.label(RichText::new(t.col_address).strong());
+                                            ui.label(RichText::new(t.col_current_latency).strong());
+                                            ui.label(RichText::new(t.col_avg).strong());
+                                            ui.label(RichText::new(t.col_min).strong());
+                                            ui.label(RichText::new(t.col_max).strong());
+                                            ui.label(RichText::new(t.col_jitter).strong());
+                                            ui.label(RichText::new(t.col_loss_pct).strong());
+                                            ui.label(RichText::new(t.col_sent).strong());
+                                            ui.label(RichText::new(t.col_status).strong());
                                             ui.end_row();
 
                                             for stat in stats_list {
                                                 let quality = stat.quality(thresholds);
                                                 let (badge_color, status_text) = match quality {
                                                     LatencyQuality::Good => {
-                                                        (Color32::from_rgb(46, 204, 113), "● BOM")
+                                                        (Color32::from_rgb(46, 204, 113), t.quality_good)
                                                     }
                                                     LatencyQuality::Fair => {
-                                                        (Color32::from_rgb(241, 196, 15), "● MÉDIO")
+                                                        (Color32::from_rgb(241, 196, 15), t.quality_fair)
                                                     }
                                                     LatencyQuality::Poor => {
-                                                        (Color32::from_rgb(230, 126, 34), "● ALTO")
+                                                        (Color32::from_rgb(230, 126, 34), t.quality_poor)
                                                     }
                                                     LatencyQuality::Offline => {
-                                                        (Color32::from_rgb(231, 76, 60), "● OFFLINE")
+                                                        (Color32::from_rgb(231, 76, 60), t.quality_offline)
                                                     }
                                                 };
 

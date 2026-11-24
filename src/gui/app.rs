@@ -16,6 +16,7 @@ use crate::gui::events::{EventsState, render_events};
 use crate::gui::history::{HistoryState, render_history};
 use crate::gui::settings::{SettingsState, render_settings};
 use crate::gui::tools::{ToolsState, render_tools};
+use crate::i18n::Language;
 use crate::network::alerts::AlertManager;
 use crate::network::icmp::PingStatus;
 use crate::network::pinger::{PingUpdate, PingerCommand, PingerService};
@@ -316,6 +317,7 @@ impl eframe::App for RustNetApp {
 
         let wan_val = self.wan_info.lock().ok().and_then(|g| g.clone());
         let wifi_val = self.wifi_info.lock().ok().and_then(|g| g.clone());
+        let t = Language::from_code(&self.config.general.language).translations();
 
         // 3. Barra Superior com Navegação em Abas
         egui::Panel::top("top_navigation_bar").show(ui, |ui| {
@@ -335,12 +337,12 @@ impl eframe::App for RustNetApp {
                 // 2. Painel da Direita: Botões de Navegação alinhados à direita e Mensagem no Meio
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let tabs = [
-                        (ActiveTab::Dashboard, "📊 Dashboard"),
-                        (ActiveTab::Charts, "📈 Gráficos"),
-                        (ActiveTab::Tools, "🛠 Ferramentas"),
-                        (ActiveTab::History, "🕒 Histórico"),
-                        (ActiveTab::Events, "🔔 Eventos"),
-                        (ActiveTab::Settings, "⚙ Configurações"),
+                        (ActiveTab::Dashboard, t.tab_dashboard),
+                        (ActiveTab::Charts, t.tab_charts),
+                        (ActiveTab::Tools, t.tab_tools),
+                        (ActiveTab::History, t.tab_history),
+                        (ActiveTab::Events, t.tab_events),
+                        (ActiveTab::Settings, t.tab_settings),
                     ];
 
                     for (tab, label) in tabs.iter().rev() {
@@ -363,9 +365,14 @@ impl eframe::App for RustNetApp {
                             if let Some(ref info) = has_update {
                                 if ui
                                     .button(
-                                        RichText::new(format!("✨ v{} Disponível!", info.version))
-                                            .color(Color32::from_rgb(46, 204, 113))
-                                            .strong(),
+                                        RichText::new(format!(
+                                            "{}{}{}",
+                                            t.update_available_fmt,
+                                            info.version,
+                                            t.update_available_suffix
+                                        ))
+                                        .color(Color32::from_rgb(46, 204, 113))
+                                        .strong(),
                                     )
                                     .clicked()
                                 {
@@ -379,10 +386,11 @@ impl eframe::App for RustNetApp {
                             if let Some(last) = self.last_update_time {
                                 let ago = last.elapsed().as_secs();
                                 ui.label(
-                                    RichText::new(format!("⏱ Atualizado há {}s", ago)).weak(),
+                                    RichText::new(format!("{}{}s", t.updated_ago_prefix, ago))
+                                        .weak(),
                                 );
                             } else {
-                                ui.label(RichText::new("⏱ Aguardando amostras...").weak());
+                                ui.label(RichText::new(t.waiting_samples).weak());
                             }
                         },
                     );
@@ -395,17 +403,26 @@ impl eframe::App for RustNetApp {
         egui::Panel::bottom("bottom_status_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 if let Some(iface) = &self.diagnostic.active_physical_interface {
-                    ui.label(RichText::new(format!("Conexão: {}", iface.friendly_name)).weak());
-                    ui.separator();
-                    ui.label(RichText::new(format!("Link: {}", iface.formatted_speed())).weak());
+                    ui.label(
+                        RichText::new(format!("{} {}", t.status_connection, iface.friendly_name))
+                            .weak(),
+                    );
                     ui.separator();
                     ui.label(
-                        RichText::new(format!("Hosts Ativos: {}", self.stats_list.len())).weak(),
+                        RichText::new(format!("{} {}", t.status_link, iface.formatted_speed()))
+                            .weak(),
+                    );
+                    ui.separator();
+                    ui.label(
+                        RichText::new(format!(
+                            "{} {}",
+                            t.status_active_hosts,
+                            self.stats_list.len()
+                        ))
+                        .weak(),
                     );
                 } else {
-                    ui.label(
-                        RichText::new("Conexão Offline").color(Color32::from_rgb(231, 76, 60)),
-                    );
+                    ui.label(RichText::new(t.status_offline).color(Color32::from_rgb(231, 76, 60)));
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -428,10 +445,11 @@ impl eframe::App for RustNetApp {
                     &self.config.thresholds,
                     &wan_val,
                     &wifi_val,
+                    t,
                 );
             }
             ActiveTab::Charts => {
-                render_charts(ui, &self.history_points, &mut self.active_hosts_in_chart);
+                render_charts(ui, &self.history_points, &mut self.active_hosts_in_chart, t);
             }
             ActiveTab::Tools => {
                 let base_dir = self.base_dir().to_path_buf();
@@ -443,15 +461,16 @@ impl eframe::App for RustNetApp {
                     &wan_val,
                     &wifi_val,
                     &base_dir,
+                    t,
                 );
             }
             ActiveTab::History => {
                 let db_path = self.resolved_db_path();
-                render_history(ui, &mut self.history_state, &db_path);
+                render_history(ui, &mut self.history_state, &db_path, t);
             }
             ActiveTab::Events => {
                 let db_path = self.resolved_db_path();
-                render_events(ui, &mut self.events_state, &db_path);
+                render_events(ui, &mut self.events_state, &db_path, t);
             }
             ActiveTab::Settings => {
                 render_settings(
@@ -461,6 +480,7 @@ impl eframe::App for RustNetApp {
                     &self.config_path,
                     &self.available_update,
                     &self.update_status,
+                    t,
                 );
 
                 if self.settings_state.hosts_changed {
@@ -506,10 +526,7 @@ impl eframe::App for RustNetApp {
                         self.history_state.last_query_time = None;
                     }
 
-                    self.settings_state.status_message = Some((
-                        "Todas as métricas foram zeradas com sucesso!".to_string(),
-                        false,
-                    ));
+                    self.settings_state.status_message = Some((t.settings_reset_done.to_string(), false));
                 }
             }
         });

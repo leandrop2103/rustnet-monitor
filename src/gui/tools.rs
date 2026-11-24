@@ -14,6 +14,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::i18n::Translations;
 use crate::network::bufferbloat::{BufferbloatResult, run_bufferbloat_test};
 use crate::network::dns::{DnsBenchmarkResult, run_dns_benchmark};
 use crate::network::mtr::{MtrHop, run_mtr_cycle};
@@ -96,6 +97,7 @@ impl Default for ToolsState {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_tools(
     ui: &mut Ui,
     state: &mut ToolsState,
@@ -104,18 +106,19 @@ pub fn render_tools(
     wan_info: &Option<WanInfo>,
     wifi_info: &Option<WifiInfo>,
     base_dir: &Path,
+    t: &Translations,
 ) {
-    ui.heading(RichText::new("🛠 Ferramentas Profissionais de Diagnóstico").strong());
+    ui.heading(RichText::new(t.tools_title).strong());
     ui.add_space(4.0);
 
     // Barra de Navegação entre Sub-Ferramentas
     ui.horizontal(|ui| {
         let tabs = [
-            (ToolsSubTab::Mtr, "🌐 Visual MTR (Traceroute)"),
-            (ToolsSubTab::Mtu, "📦 Path MTU Discovery"),
-            (ToolsSubTab::Dns, "🚀 Benchmark DNS"),
-            (ToolsSubTab::Bufferbloat, "🌊 Teste Bufferbloat"),
-            (ToolsSubTab::Report, "📋 Laudo Técnico SLA"),
+            (ToolsSubTab::Mtr, t.tools_sub_mtr),
+            (ToolsSubTab::Mtu, t.tools_sub_mtu),
+            (ToolsSubTab::Dns, t.tools_sub_dns),
+            (ToolsSubTab::Bufferbloat, t.tools_sub_bufferbloat),
+            (ToolsSubTab::Report, t.tools_sub_report),
         ];
 
         for (tab, label) in tabs {
@@ -134,31 +137,26 @@ pub fn render_tools(
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| match state.active_subtab {
-            ToolsSubTab::Mtr => render_mtr_subtab(ui, state),
-            ToolsSubTab::Mtu => render_mtu_subtab(ui, state),
-            ToolsSubTab::Dns => render_dns_subtab(ui, state, diagnostic),
-            ToolsSubTab::Bufferbloat => render_bufferbloat_subtab(ui, state),
+            ToolsSubTab::Mtr => render_mtr_subtab(ui, state, t),
+            ToolsSubTab::Mtu => render_mtu_subtab(ui, state, t),
+            ToolsSubTab::Dns => render_dns_subtab(ui, state, diagnostic, t),
+            ToolsSubTab::Bufferbloat => render_bufferbloat_subtab(ui, state, t),
             ToolsSubTab::Report => {
-                render_report_subtab(ui, state, diagnostic, stats_list, wan_info, wifi_info, base_dir)
+                render_report_subtab(ui, state, diagnostic, stats_list, wan_info, wifi_info, base_dir, t)
             }
         });
 }
 
-fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
+fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState, t: &Translations) {
     ui.group(|ui| {
-        ui.heading(RichText::new("Visual MTR - Rastreamento Contínuo Salto a Salto").strong());
-        ui.label(
-            RichText::new(
-                "Mede a latência e a perda de pacotes em cada roteador ao longo da rota até o destino.",
-            )
-            .weak(),
-        );
+        ui.heading(RichText::new(t.mtr_title).strong());
+        ui.label(RichText::new(t.mtr_desc).weak());
         ui.add_space(6.0);
 
         let is_running = state.mtr_running.load(Ordering::Relaxed);
 
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Destino (IPv4 / Host):").strong());
+            ui.label(RichText::new(t.mtr_target_label).strong());
             ui.add_enabled(
                 !is_running,
                 egui::TextEdit::singleline(&mut state.mtr_target_str).desired_width(160.0),
@@ -166,7 +164,7 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
 
             if !is_running {
                 let start_btn = ui.button(
-                    RichText::new("▶ Iniciar Rastreamento MTR")
+                    RichText::new(t.mtr_start)
                         .color(Color32::from_rgb(46, 204, 113))
                         .strong(),
                 );
@@ -214,15 +212,13 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
                             }
                         });
                     } else {
-                        state.mtr_error = Some(format!(
-                            "Endereço ou hostname '{}' inválido ou não resolvido.",
-                            target_input
-                        ));
+                        state.mtr_error =
+                            Some(format!("{} '{}'", t.mtr_invalid_target, target_input));
                     }
                 }
             } else if ui
                 .button(
-                    RichText::new("⏹ Parar MTR")
+                    RichText::new(t.mtr_stop)
                         .color(Color32::from_rgb(231, 76, 60))
                         .strong(),
                 )
@@ -231,10 +227,7 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
                 state.mtr_running.store(false, Ordering::Relaxed);
             }
 
-            if ui
-                .button(RichText::new("🔄 Limpar Amostras").strong())
-                .clicked()
-            {
+            if ui.button(RichText::new(t.mtr_clear).strong()).clicked() {
                 state.mtr_generation.fetch_add(1, Ordering::SeqCst);
                 state.mtr_running.store(false, Ordering::Relaxed);
                 if let Ok(mut h) = state.mtr_hops.lock() {
@@ -244,10 +237,7 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
 
             if is_running {
                 ui.spinner();
-                ui.label(
-                    RichText::new("Sondando rota continuamente a cada 1s...")
-                        .color(Color32::from_rgb(52, 152, 219)),
-                );
+                ui.label(RichText::new(t.mtr_running_msg).color(Color32::from_rgb(52, 152, 219)));
             }
         });
         if let Some(ref err) = state.mtr_error {
@@ -265,7 +255,7 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
         .unwrap_or_default();
 
     if hops.is_empty() {
-        ui.label(RichText::new("Clique em 'Iniciar Rastreamento MTR' para mapear a rota.").weak());
+        ui.label(RichText::new(t.mtr_empty_msg).weak());
     } else {
         // Resumo de Pacotes Perdidos no Destino
         if let Some(target_hop) = hops.last() {
@@ -284,14 +274,14 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
             };
 
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("Saltos Detectados: {}", hops.len())).strong());
+                ui.label(RichText::new(format!("{} {}", t.mtr_hops_detected, hops.len())).strong());
                 ui.separator();
-                ui.label(RichText::new(format!("Destino Final: {}", dest_ip)).strong());
+                ui.label(RichText::new(format!("{} {}", t.mtr_final_dest, dest_ip)).strong());
                 ui.separator();
                 ui.label(
                     RichText::new(format!(
-                        "Pacotes Perdidos no Destino: {} de {} ({:.1}%)",
-                        dest_lost, target_hop.sent, dest_loss_pct
+                        "{} {} {} {} ({:.1}%)",
+                        t.mtr_dest_lost, dest_lost, t.mtr_of, target_hop.sent, dest_loss_pct
                     ))
                     .color(dest_color)
                     .strong(),
@@ -312,23 +302,23 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
                             .spacing([18.0, 7.0])
                             .show(ui, |ui| {
                                 // Cabeçalho da Tabela
-                                ui.label(RichText::new("Salto").strong());
-                                ui.label(RichText::new("Endereço IP").strong());
-                                ui.label(RichText::new("Enviados").strong());
-                                ui.label(RichText::new("Recebidos").strong());
-                                ui.label(RichText::new("Perdidos").strong());
-                                ui.label(RichText::new("Perda %").strong());
-                                ui.label(RichText::new("Atual").strong());
-                                ui.label(RichText::new("Média").strong());
-                                ui.label(RichText::new("Mín").strong());
-                                ui.label(RichText::new("Máx").strong());
+                                ui.label(RichText::new(t.mtr_col_hop).strong());
+                                ui.label(RichText::new(t.mtr_col_ip).strong());
+                                ui.label(RichText::new(t.mtr_col_sent).strong());
+                                ui.label(RichText::new(t.mtr_col_recv).strong());
+                                ui.label(RichText::new(t.mtr_col_lost).strong());
+                                ui.label(RichText::new(t.mtr_col_loss).strong());
+                                ui.label(RichText::new(t.mtr_col_cur).strong());
+                                ui.label(RichText::new(t.mtr_col_avg).strong());
+                                ui.label(RichText::new(t.mtr_col_min).strong());
+                                ui.label(RichText::new(t.mtr_col_max).strong());
                                 ui.end_row();
 
                                 for hop in &hops {
                                     let ip_str = hop
                                         .ip
                                         .map(|i| i.to_string())
-                                        .unwrap_or_else(|| "* * * (Sem resposta)".to_string());
+                                        .unwrap_or_else(|| t.mtr_no_reply.to_string());
                                     let lost = hop.lost();
                                     let cur = hop
                                         .last_ms
@@ -415,21 +405,16 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
     }
 }
 
-fn render_mtu_subtab(ui: &mut Ui, state: &mut ToolsState) {
+fn render_mtu_subtab(ui: &mut Ui, state: &mut ToolsState, t: &Translations) {
     ui.group(|ui| {
-        ui.heading(RichText::new("Path MTU Discovery - Detecção de MTU e Black Hole").strong());
-        ui.label(
-            RichText::new(
-                "Envia pacotes ICMP com a flag DF (Don't Fragment) para descobrir o tamanho máximo de quadro que passa pelo enlace sem descarte.",
-            )
-            .weak(),
-        );
+        ui.heading(RichText::new(t.mtu_title).strong());
+        ui.label(RichText::new(t.mtu_desc).weak());
         ui.add_space(6.0);
 
         let is_running = state.mtu_running.load(Ordering::Relaxed);
 
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Destino do Teste:").strong());
+            ui.label(RichText::new(t.mtu_target_label).strong());
             ui.add_enabled(
                 !is_running,
                 egui::TextEdit::singleline(&mut state.mtu_target_str).desired_width(140.0),
@@ -437,7 +422,7 @@ fn render_mtu_subtab(ui: &mut Ui, state: &mut ToolsState) {
 
             if !is_running {
                 let start_btn = ui.button(
-                    RichText::new("🔍 Iniciar Teste de MTU")
+                    RichText::new(t.mtu_start)
                         .color(Color32::from_rgb(52, 152, 219))
                         .strong(),
                 );
@@ -457,18 +442,13 @@ fn render_mtu_subtab(ui: &mut Ui, state: &mut ToolsState) {
                             running_clone.store(false, Ordering::Relaxed);
                         });
                     } else {
-                        state.mtu_error = Some(format!(
-                            "Endereço ou hostname '{}' inválido ou não resolvido.",
-                            target_input
-                        ));
+                        state.mtu_error =
+                            Some(format!("{} '{}'", t.mtr_invalid_target, target_input));
                     }
                 }
             } else {
                 ui.spinner();
-                ui.label(
-                    RichText::new("Executando busca binária de Path MTU...")
-                        .color(Color32::from_rgb(52, 152, 219)),
-                );
+                ui.label(RichText::new(t.mtu_running_msg).color(Color32::from_rgb(52, 152, 219)));
             }
         });
         if let Some(ref err) = state.mtu_error {
@@ -490,8 +470,8 @@ fn render_mtu_subtab(ui: &mut Ui, state: &mut ToolsState) {
                     ui.vertical(|ui| {
                         ui.label(
                             RichText::new(format!(
-                                "MTU Máximo Suportado: {} bytes ({})",
-                                res.max_mtu, res.classification
+                                "{} {} bytes ({})",
+                                t.mtu_result_max, res.max_mtu, res.classification
                             ))
                             .size(17.0)
                             .color(Color32::from_rgb(52, 152, 219))
@@ -500,8 +480,8 @@ fn render_mtu_subtab(ui: &mut Ui, state: &mut ToolsState) {
                         ui.label(RichText::new(&res.details));
                         ui.label(
                             RichText::new(format!(
-                                "Sondas enviadas: {} pacotes ICMP com flag DF.",
-                                res.packets_tested
+                                "{} {} {}",
+                                t.mtu_probes_sent, res.packets_tested, t.mtu_probes_suffix
                             ))
                             .weak(),
                         );
@@ -511,15 +491,15 @@ fn render_mtu_subtab(ui: &mut Ui, state: &mut ToolsState) {
     }
 }
 
-fn render_dns_subtab(ui: &mut Ui, state: &mut ToolsState, diagnostic: &NetworkDiagnostic) {
+fn render_dns_subtab(
+    ui: &mut Ui,
+    state: &mut ToolsState,
+    diagnostic: &NetworkDiagnostic,
+    t: &Translations,
+) {
     ui.group(|ui| {
-        ui.heading(RichText::new("Benchmark e Diagnóstico de Resolução DNS").strong());
-        ui.label(
-            RichText::new(
-                "Compara diretamente a latência de resolução RFC 1035 UDP 53 entre o provedor local e resolvedores globais.",
-            )
-            .weak(),
-        );
+        ui.heading(RichText::new(t.dns_title).strong());
+        ui.label(RichText::new(t.dns_desc).weak());
         ui.add_space(6.0);
 
         let is_running = state.dns_running.load(Ordering::Relaxed);
@@ -528,7 +508,7 @@ fn render_dns_subtab(ui: &mut Ui, state: &mut ToolsState, diagnostic: &NetworkDi
             if !is_running {
                 if ui
                     .button(
-                        RichText::new("🚀 Executar Benchmark DNS")
+                        RichText::new(t.dns_start)
                             .color(Color32::from_rgb(46, 204, 113))
                             .strong(),
                     )
@@ -554,10 +534,7 @@ fn render_dns_subtab(ui: &mut Ui, state: &mut ToolsState, diagnostic: &NetworkDi
                 }
             } else {
                 ui.spinner();
-                ui.label(
-                    RichText::new("Consultando servidores DNS na porta 53 UDP...")
-                        .color(Color32::from_rgb(52, 152, 219)),
-                );
+                ui.label(RichText::new(t.dns_running_msg).color(Color32::from_rgb(52, 152, 219)));
             }
         });
     });
@@ -582,10 +559,10 @@ fn render_dns_subtab(ui: &mut Ui, state: &mut ToolsState, diagnostic: &NetworkDi
                             .striped(true)
                             .spacing([24.0, 7.0])
                             .show(ui, |ui| {
-                                ui.label(RichText::new("Servidor DNS").strong());
-                                ui.label(RichText::new("Endereço IP").strong());
-                                ui.label(RichText::new("Tempo Resposta").strong());
-                                ui.label(RichText::new("Status").strong());
+                                ui.label(RichText::new(t.dns_col_server).strong());
+                                ui.label(RichText::new(t.dns_col_ip).strong());
+                                ui.label(RichText::new(t.dns_col_rtt).strong());
+                                ui.label(RichText::new(t.dns_col_status).strong());
                                 ui.end_row();
 
                                 for r in &results {
@@ -595,10 +572,10 @@ fn render_dns_subtab(ui: &mut Ui, state: &mut ToolsState, diagnostic: &NetworkDi
                                         .unwrap_or_else(|| "-".to_string());
                                     let (status_str, color) = match &r.status {
                                         crate::network::dns::DnsStatus::Ok => {
-                                            ("● OK (Resolvido)", Color32::from_rgb(46, 204, 113))
+                                            (t.dns_status_ok, Color32::from_rgb(46, 204, 113))
                                         }
                                         crate::network::dns::DnsStatus::Timeout => {
-                                            ("● Timeout (Sem resposta)", Color32::from_rgb(231, 76, 60))
+                                            (t.dns_status_timeout, Color32::from_rgb(231, 76, 60))
                                         }
                                         crate::network::dns::DnsStatus::Error(msg) => {
                                             (msg.as_str(), Color32::from_rgb(241, 196, 15))
@@ -617,21 +594,16 @@ fn render_dns_subtab(ui: &mut Ui, state: &mut ToolsState, diagnostic: &NetworkDi
     }
 }
 
-fn render_bufferbloat_subtab(ui: &mut Ui, state: &mut ToolsState) {
+fn render_bufferbloat_subtab(ui: &mut Ui, state: &mut ToolsState, t: &Translations) {
     ui.group(|ui| {
-        ui.heading(RichText::new("Teste de Bufferbloat - Latência sob Carga").strong());
-        ui.label(
-            RichText::new(
-                "Mede a retenção de pacotes no roteador quando a rede é saturada por downloads simultâneos.",
-            )
-            .weak(),
-        );
+        ui.heading(RichText::new(t.bb_title).strong());
+        ui.label(RichText::new(t.bb_desc).weak());
         ui.add_space(6.0);
 
         let is_running = state.bufferbloat_running.load(Ordering::Relaxed);
 
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Alvo do Ping:").strong());
+            ui.label(RichText::new(t.bb_target_label).strong());
             ui.add_enabled(
                 !is_running,
                 egui::TextEdit::singleline(&mut state.bufferbloat_target_str).desired_width(140.0),
@@ -639,7 +611,7 @@ fn render_bufferbloat_subtab(ui: &mut Ui, state: &mut ToolsState) {
 
             if !is_running {
                 let start_btn = ui.button(
-                    RichText::new("🌊 Executar Teste de Bufferbloat (8s)")
+                    RichText::new(t.bb_start)
                         .color(Color32::from_rgb(155, 89, 182))
                         .strong(),
                 );
@@ -666,10 +638,8 @@ fn render_bufferbloat_subtab(ui: &mut Ui, state: &mut ToolsState) {
                             running_clone.store(false, Ordering::Relaxed);
                         });
                     } else {
-                        state.bufferbloat_error = Some(format!(
-                            "Endereço ou hostname '{}' inválido ou não resolvido.",
-                            target_input
-                        ));
+                        state.bufferbloat_error =
+                            Some(format!("{} '{}'", t.mtr_invalid_target, target_input));
                     }
                 }
             } else {
@@ -677,7 +647,7 @@ fn render_bufferbloat_subtab(ui: &mut Ui, state: &mut ToolsState) {
                     .bufferbloat_progress
                     .lock()
                     .map(|p| p.clone())
-                    .unwrap_or((0.5, "Executando...".to_string()));
+                    .unwrap_or((0.5, t.bb_running_fallback.to_string()));
                 ui.spinner();
                 ui.label(RichText::new(text).color(Color32::from_rgb(155, 89, 182)));
                 ui.add(egui::ProgressBar::new(prog).show_percentage());
@@ -708,8 +678,8 @@ fn render_bufferbloat_subtab(ui: &mut Ui, state: &mut ToolsState) {
                     ui.vertical(|ui| {
                         ui.label(
                             RichText::new(format!(
-                                "Classificação de Bufferbloat: Nota {} (+{:.1} ms)",
-                                res.grade, res.delta_ms
+                                "{} {} (+{:.1} ms)",
+                                t.bb_grade_label, res.grade, res.delta_ms
                             ))
                             .size(17.0)
                             .strong(),
@@ -717,8 +687,11 @@ fn render_bufferbloat_subtab(ui: &mut Ui, state: &mut ToolsState) {
                         ui.label(RichText::new(res.description));
                         ui.label(
                             RichText::new(format!(
-                                "Latência Ociosa: {:.1} ms | Latência sob Carga: {:.1} ms",
-                                res.unloaded_avg_ms, res.loaded_avg_ms
+                                "{} {:.1} ms | {} {:.1} ms",
+                                t.bb_unloaded_label,
+                                res.unloaded_avg_ms,
+                                t.bb_loaded_label,
+                                res.loaded_avg_ms
                             ))
                             .weak(),
                         );
@@ -728,6 +701,7 @@ fn render_bufferbloat_subtab(ui: &mut Ui, state: &mut ToolsState) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_report_subtab(
     ui: &mut Ui,
     state: &mut ToolsState,
@@ -736,20 +710,16 @@ fn render_report_subtab(
     wan_info: &Option<WanInfo>,
     wifi_info: &Option<WifiInfo>,
     base_dir: &Path,
+    t: &Translations,
 ) {
     ui.group(|ui| {
-        ui.heading(RichText::new("Emissor de Laudo Técnico e Relatório de SLA").strong());
-        ui.label(
-            RichText::new(
-                "Compila todos os dados da conexão, métricas de estabilidade, dados de rádio Wi-Fi e histórico de incidentes em um laudo formal.",
-            )
-            .weak(),
-        );
+        ui.heading(RichText::new(t.report_title).strong());
+        ui.label(RichText::new(t.report_desc).weak());
         ui.add_space(6.0);
 
         ui.horizontal(|ui| {
             if ui
-                .button(RichText::new("📝 Gerar Novo Laudo Completo").strong())
+                .button(RichText::new(t.report_generate).strong())
                 .clicked()
             {
                 let data = ReportData {
@@ -760,35 +730,29 @@ fn render_report_subtab(
                     app_version: env!("CARGO_PKG_VERSION"),
                 };
                 state.generated_report = generate_technical_report(&data);
-                state.report_status_message =
-                    Some(("Laudo técnico gerado com sucesso!".to_string(), false));
+                state.report_status_message = Some((t.report_generated_ok.to_string(), false));
             }
 
             if !state.generated_report.is_empty() {
-                if ui
-                    .button(RichText::new("📋 Copiar para Área de Transferência").strong())
-                    .clicked()
-                {
+                if ui.button(RichText::new(t.report_copy).strong()).clicked() {
                     ui.ctx().copy_text(state.generated_report.clone());
-                    state.report_status_message =
-                        Some(("Laudo copiado para a Área de Transferência!".to_string(), false));
+                    state.report_status_message = Some((t.report_copied_ok.to_string(), false));
                 }
 
-                if ui
-                    .button(RichText::new("💾 Salvar Arquivo (laudo_rede.md)").strong())
-                    .clicked()
-                {
+                if ui.button(RichText::new(t.report_save).strong()).clicked() {
                     let path = base_dir.join("laudo_rede.md");
                     match save_report_to_file(&state.generated_report, &path) {
                         Ok(()) => {
                             state.report_status_message = Some((
-                                format!("Arquivo salvo com sucesso em: {}", path.display()),
+                                format!("{} {}", t.report_saved_ok_prefix, path.display()),
                                 false,
                             ));
                         }
                         Err(e) => {
-                            state.report_status_message =
-                                Some((format!("Erro ao gravar arquivo: {}", e), true));
+                            state.report_status_message = Some((
+                                format!("{} {}", t.report_save_err_prefix, e),
+                                true,
+                            ));
                         }
                     }
                 }
@@ -808,7 +772,7 @@ fn render_report_subtab(
     ui.add_space(8.0);
 
     if !state.generated_report.is_empty() {
-        ui.label(RichText::new("Pré-visualização do Laudo Técnico:").strong());
+        ui.label(RichText::new(t.report_preview).strong());
         egui::ScrollArea::vertical()
             .max_height(350.0)
             .show(ui, |ui| {

@@ -3,6 +3,7 @@
 mod config;
 mod database;
 mod gui;
+mod i18n;
 mod network;
 mod reporting;
 mod updater;

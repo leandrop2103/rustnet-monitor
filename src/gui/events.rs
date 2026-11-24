@@ -4,6 +4,7 @@ use std::path::Path;
 
 use crate::database::connection::open_optimized_connection;
 use crate::database::models::NetworkEventRecord;
+use crate::i18n::Translations;
 
 #[derive(Default)]
 pub struct EventsState {
@@ -11,11 +12,11 @@ pub struct EventsState {
     pub last_refresh: Option<std::time::Instant>,
 }
 
-pub fn render_events(ui: &mut Ui, state: &mut EventsState, db_path: &Path) {
+pub fn render_events(ui: &mut Ui, state: &mut EventsState, db_path: &Path, t: &Translations) {
     ui.horizontal(|ui| {
-        ui.heading(RichText::new("Eventos de Rede").strong());
+        ui.heading(RichText::new(t.events_title).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("🔄 Atualizar").clicked() {
+            if ui.button(t.events_refresh).clicked() {
                 state.last_refresh = None;
             }
         });
@@ -32,7 +33,7 @@ pub fn render_events(ui: &mut Ui, state: &mut EventsState, db_path: &Path) {
     }
 
     if state.cached_events.is_empty() {
-        ui.label("Nenhum evento de rede registrado até o momento.");
+        ui.label(t.events_empty);
         return;
     }
 
@@ -43,11 +44,11 @@ pub fn render_events(ui: &mut Ui, state: &mut EventsState, db_path: &Path) {
                 .striped(true)
                 .spacing([24.0, 8.0])
                 .show(ui, |ui| {
-                    ui.label(RichText::new("Data / Hora (UTC)").strong());
-                    ui.label(RichText::new("Evento").strong());
-                    ui.label(RichText::new("Interface").strong());
-                    ui.label(RichText::new("Tipo").strong());
-                    ui.label(RichText::new("Detalhes").strong());
+                    ui.label(RichText::new(t.events_col_datetime).strong());
+                    ui.label(RichText::new(t.events_col_event).strong());
+                    ui.label(RichText::new(t.events_col_iface).strong());
+                    ui.label(RichText::new(t.events_col_type).strong());
+                    ui.label(RichText::new(t.events_col_details).strong());
                     ui.end_row();
 
                     for event in state.cached_events.iter().rev() {

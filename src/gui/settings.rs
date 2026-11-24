@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::config::settings::{AppConfig, HostConfig};
+use crate::i18n::{Language, Translations};
 use crate::updater::{RemoteVersionInfo, UpdateStatus};
 
 pub struct SettingsState {
@@ -36,8 +37,9 @@ pub fn render_settings(
     config_path: &Path,
     available_update: &Arc<Mutex<Option<RemoteVersionInfo>>>,
     update_status: &Arc<Mutex<UpdateStatus>>,
+    t: &Translations,
 ) {
-    ui.heading(RichText::new("Configurações do RustNet Monitor").strong());
+    ui.heading(RichText::new(t.settings_title).strong());
     ui.separator();
 
     egui::ScrollArea::vertical()
@@ -45,33 +47,51 @@ pub fn render_settings(
         .show(ui, |ui| {
             // 1. Configurações Gerais e Aparência
             ui.group(|ui| {
-                ui.heading(RichText::new("Geral e Aparência").strong());
+                ui.heading(RichText::new(t.settings_general_title).strong());
                 ui.add_space(4.0);
 
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Tema Visual:").strong());
-                    ui.radio_value(&mut config.general.theme, "dark".to_string(), "🌙 Escuro");
-                    ui.radio_value(&mut config.general.theme, "light".to_string(), "☀️ Claro");
+                    ui.label(RichText::new(t.settings_theme_label).strong());
+                    ui.radio_value(
+                        &mut config.general.theme,
+                        "dark".to_string(),
+                        t.settings_theme_dark,
+                    );
+                    ui.radio_value(
+                        &mut config.general.theme,
+                        "light".to_string(),
+                        t.settings_theme_light,
+                    );
                     ui.radio_value(
                         &mut config.general.theme,
                         "system".to_string(),
-                        "💻 Seguir Sistema",
+                        t.settings_theme_system,
                     );
                 });
 
+                // Seletor de Idioma (troca instantânea em tempo real e persistência automática)
                 ui.horizontal(|ui| {
-                    ui.checkbox(
-                        &mut config.general.minimize_to_tray,
-                        "Minimizar para a Bandeja do Sistema",
-                    );
+                    ui.label(RichText::new(t.settings_language_label).strong());
+                    let current_lang = Language::from_code(&config.general.language);
+                    let mut selected_lang = current_lang;
+
+                    ui.radio_value(&mut selected_lang, Language::PtBr, "🇧🇷 Português (BR)");
+                    ui.radio_value(&mut selected_lang, Language::En, "🇺🇸 English");
+                    ui.radio_value(&mut selected_lang, Language::Es, "🇪🇸 Español");
+
+                    if selected_lang != current_lang {
+                        config.general.language = selected_lang.code().to_string();
+                        let _ = config.save(config_path);
+                    }
+                });
+
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut config.general.minimize_to_tray, t.settings_minimize_tray);
                     ui.checkbox(
                         &mut config.general.start_with_windows,
-                        "Iniciar com o Windows",
+                        t.settings_start_windows,
                     );
-                    ui.checkbox(
-                        &mut config.general.sound_alerts,
-                        "🔊 Alertas Sonoros em Quedas / Perdas",
-                    );
+                    ui.checkbox(&mut config.general.sound_alerts, t.settings_sound_alerts);
                 });
             });
 
@@ -79,11 +99,11 @@ pub fn render_settings(
 
             // 2. Parâmetros de Monitoramento
             ui.group(|ui| {
-                ui.heading(RichText::new("Parâmetros de Monitoramento").strong());
+                ui.heading(RichText::new(t.settings_monitoring_title).strong());
                 ui.add_space(4.0);
 
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Intervalo entre testes:").strong());
+                    ui.label(RichText::new(t.settings_interval_label).strong());
                     let intervals = [1, 2, 5, 10, 30, 60];
                     for sec in intervals {
                         ui.radio_value(
@@ -95,7 +115,7 @@ pub fn render_settings(
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Timeout do Ping:").strong());
+                    ui.label(RichText::new(t.settings_timeout_label).strong());
                     let timeouts = [500, 1000, 2000, 3000];
                     for ms in timeouts {
                         ui.radio_value(&mut config.monitoring.timeout_ms, ms, format!("{} ms", ms));
@@ -107,12 +127,12 @@ pub fn render_settings(
 
             // 3. Limites de Classificação de Latência
             ui.group(|ui| {
-                ui.heading(RichText::new("Limites de Qualidade de Latência").strong());
+                ui.heading(RichText::new(t.settings_thresholds_title).strong());
                 ui.add_space(4.0);
 
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new("Limite Verde (BOM):")
+                        RichText::new(t.settings_green_limit)
                             .color(Color32::from_rgb(46, 204, 113))
                             .strong(),
                     );
@@ -124,7 +144,7 @@ pub fn render_settings(
 
                     ui.add_space(20.0);
                     ui.label(
-                        RichText::new("Limite Amarelo (MÉDIO):")
+                        RichText::new(t.settings_yellow_limit)
                             .color(Color32::from_rgb(241, 196, 15))
                             .strong(),
                     );
@@ -137,29 +157,24 @@ pub fn render_settings(
                         config.thresholds.yellow_max_ms = config.thresholds.green_max_ms + 5;
                     }
                 });
-                ui.label(
-                    RichText::new(
-                        "Latências acima do limite amarelo são classificadas como ALTO (Vermelho).",
-                    )
-                    .weak(),
-                );
+                ui.label(RichText::new(t.settings_thresholds_hint).weak());
             });
 
             ui.add_space(8.0);
 
             // 4. Retenção do Banco de Dados
             ui.group(|ui| {
-                ui.heading(RichText::new("Persistência e Retenção").strong());
+                ui.heading(RichText::new(t.settings_persistence_title).strong());
                 ui.add_space(4.0);
 
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Retenção de histórico:").strong());
+                    ui.label(RichText::new(t.settings_retention_label).strong());
                     let retentions = [
-                        (7, "7 dias"),
-                        (30, "30 dias"),
-                        (90, "90 dias"),
-                        (365, "1 ano"),
-                        (0, "Sem limite"),
+                        (7, t.settings_ret_7d),
+                        (30, t.settings_ret_30d),
+                        (90, t.settings_ret_90d),
+                        (365, t.settings_ret_1y),
+                        (0, t.settings_ret_unlimited),
                     ];
                     for (days, label) in retentions {
                         ui.radio_value(&mut config.database.retention_days, days, label);
@@ -171,7 +186,7 @@ pub fn render_settings(
 
             // 5. Gerenciamento de Hosts Monitorados
             ui.group(|ui| {
-                ui.heading(RichText::new("Gerenciamento de Hosts Monitorados").strong());
+                ui.heading(RichText::new(t.settings_hosts_title).strong());
                 ui.add_space(4.0);
 
                 let mut to_remove = None;
@@ -187,7 +202,7 @@ pub fn render_settings(
                             if !host.is_dynamic_gateway {
                                 if ui
                                     .button(
-                                        RichText::new("Remover")
+                                        RichText::new(t.settings_remove)
                                             .color(Color32::from_rgb(231, 76, 60)),
                                     )
                                     .clicked()
@@ -195,7 +210,7 @@ pub fn render_settings(
                                     to_remove = Some(i);
                                 }
                             } else {
-                                ui.label(RichText::new("Padrão Dinâmico").weak());
+                                ui.label(RichText::new(t.settings_dynamic_default).weak());
                             }
                         });
                     });
@@ -211,38 +226,35 @@ pub fn render_settings(
                     state.hosts_changed = true;
                     if let Err(e) = config.save(config_path) {
                         state.status_message = Some((
-                            format!("Host removido, mas falhou ao salvar config.toml: {}", e),
+                            format!("{} {}", t.settings_msg_host_removed_err, e),
                             true,
                         ));
                     } else {
-                        state.status_message = Some((
-                            "Host removido e salvo com sucesso!".to_string(),
-                            false,
-                        ));
+                        state.status_message = Some((t.settings_msg_host_removed.to_string(), false));
                     }
                 }
 
                 ui.separator();
-                ui.label(RichText::new("Adicionar Novo Host:").strong());
+                ui.label(RichText::new(t.settings_add_host_title).strong());
                 ui.horizontal(|ui| {
-                    ui.label("Nome:");
+                    ui.label(t.settings_host_name);
                     ui.text_edit_singleline(&mut state.new_host_name);
-                    ui.label("Endereço / IP:");
+                    ui.label(t.settings_host_addr);
                     ui.text_edit_singleline(&mut state.new_host_address);
 
-                    if ui.button("➕ Adicionar").clicked() {
+                    if ui.button(t.settings_add_btn).clicked() {
                         let name = state.new_host_name.trim();
                         let addr = state.new_host_address.trim();
                         if name.is_empty() || addr.is_empty() {
                             state.status_message =
-                                Some(("Preencha o nome e o endereço do host.".to_string(), true));
+                                Some((t.settings_msg_fill_fields.to_string(), true));
                         } else if config
                             .hosts
                             .iter()
                             .any(|h| h.name.eq_ignore_ascii_case(name))
                         {
                             state.status_message = Some((
-                                format!("Já existe um host cadastrado com o nome '{}'.", name),
+                                format!("{} '{}'.", t.settings_msg_duplicate_host, name),
                                 true,
                             ));
                         } else {
@@ -259,14 +271,12 @@ pub fn render_settings(
 
                             if let Err(e) = config.save(config_path) {
                                 state.status_message = Some((
-                                    format!("Host adicionado, mas falhou ao salvar config.toml: {}", e),
+                                    format!("{} {}", t.settings_msg_host_added_err, e),
                                     true,
                                 ));
                             } else {
-                                state.status_message = Some((
-                                    "Host adicionado e salvo com sucesso em config.toml!".to_string(),
-                                    false,
-                                ));
+                                state.status_message =
+                                    Some((t.settings_msg_host_added.to_string(), false));
                             }
                         }
                     }
@@ -277,14 +287,14 @@ pub fn render_settings(
 
             // 6. Manutenção de Dados e Reinicialização de Métricas
             ui.group(|ui| {
-                ui.heading(RichText::new("Manutenção e Métricas").strong());
+                ui.heading(RichText::new(t.settings_maintenance_title).strong());
                 ui.add_space(4.0);
 
                 if !state.show_reset_confirmation {
                     ui.horizontal(|ui| {
                         if ui
                             .button(
-                                RichText::new("🔄 Zerar Todas as Métricas")
+                                RichText::new(t.settings_reset_btn)
                                     .color(Color32::from_rgb(231, 76, 60))
                                     .strong(),
                             )
@@ -293,12 +303,7 @@ pub fn render_settings(
                             state.show_reset_confirmation = true;
                         }
 
-                        ui.label(
-                            RichText::new(
-                                "Reinicia contadores de latência, jitter, taxas de perda e dados em tempo real.",
-                            )
-                            .weak(),
-                        );
+                        ui.label(RichText::new(t.settings_reset_hint).weak());
                     });
                 } else {
                     egui::Frame::group(ui.style())
@@ -310,21 +315,17 @@ pub fn render_settings(
                                 ui.label(RichText::new("⚠️").size(24.0));
                                 ui.vertical(|ui| {
                                     ui.label(
-                                        RichText::new("Confirmar Reinicialização de Métricas")
+                                        RichText::new(t.settings_reset_confirm_title)
                                             .size(16.0)
                                             .color(Color32::from_rgb(231, 76, 60))
                                             .strong(),
                                     );
-                                    ui.label(
-                                        "Deseja realmente zerar todos os contadores de latência, jitter e perda de pacotes?",
-                                    );
-                                    ui.label(
-                                        "Esta operação reiniciará o monitoramento em tempo real a partir do zero.",
-                                    );
+                                    ui.label(t.settings_reset_confirm_q1);
+                                    ui.label(t.settings_reset_confirm_q2);
                                     ui.add_space(4.0);
                                     ui.checkbox(
                                         &mut state.clear_db_history,
-                                        "Também excluir histórico de amostras persistido no SQLite (rustnet.db)",
+                                        t.settings_reset_clear_db,
                                     );
                                 });
                             });
@@ -334,7 +335,7 @@ pub fn render_settings(
                                 if ui
                                     .add(
                                         egui::Button::new(
-                                            RichText::new("⚠️ Sim, Zerar Métricas")
+                                            RichText::new(t.settings_reset_confirm_yes)
                                                 .color(Color32::WHITE)
                                                 .strong(),
                                         )
@@ -346,7 +347,7 @@ pub fn render_settings(
                                     state.show_reset_confirmation = false;
                                 }
 
-                                if ui.button("Cancelar").clicked() {
+                                if ui.button(t.settings_cancel).clicked() {
                                     state.show_reset_confirmation = false;
                                 }
                             });
@@ -358,7 +359,7 @@ pub fn render_settings(
 
             // 7. Atualização Automática do Aplicativo
             ui.group(|ui| {
-                ui.heading(RichText::new("Atualizações do Aplicativo").strong());
+                ui.heading(RichText::new(t.settings_updates_title).strong());
                 ui.add_space(4.0);
 
                 let current_version = env!("CARGO_PKG_VERSION");
@@ -372,10 +373,20 @@ pub fn render_settings(
                     .unwrap_or(None);
 
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("Versão Instalada: v{}", current_version)).strong());
                     ui.label(
-                        RichText::new(format!("(Repositório: {})", crate::updater::GITHUB_REPO))
-                            .weak(),
+                        RichText::new(format!(
+                            "{} v{}",
+                            t.settings_installed_version, current_version
+                        ))
+                        .strong(),
+                    );
+                    ui.label(
+                        RichText::new(format!(
+                            "({} {})",
+                            t.settings_repository,
+                            crate::updater::GITHUB_REPO
+                        ))
+                        .weak(),
                     );
                 });
 
@@ -385,7 +396,7 @@ pub fn render_settings(
                     crate::updater::UpdateStatus::Idle => {
                         if opt_info.is_none()
                             && ui
-                                .button(RichText::new("🔍 Verificar Atualizações").strong())
+                                .button(RichText::new(t.settings_check_updates).strong())
                                 .clicked()
                         {
                             crate::updater::spawn_update_check(
@@ -398,7 +409,7 @@ pub fn render_settings(
                         ui.horizontal(|ui| {
                             ui.spinner();
                             ui.label(
-                                RichText::new("Verificando se há nova versão no GitHub Releases...")
+                                RichText::new(t.settings_checking_updates)
                                     .color(Color32::from_rgb(52, 152, 219)),
                             );
                         });
@@ -406,11 +417,11 @@ pub fn render_settings(
                     crate::updater::UpdateStatus::UpToDate => {
                         ui.horizontal(|ui| {
                             ui.label(
-                                RichText::new("✅ Você já está utilizando a versão mais recente!")
+                                RichText::new(t.settings_up_to_date)
                                     .color(Color32::from_rgb(46, 204, 113))
                                     .strong(),
                             );
-                            if ui.button("🔍 Checar Novamente").clicked() {
+                            if ui.button(t.settings_check_again).clicked() {
                                 crate::updater::spawn_update_check(
                                     available_update.clone(),
                                     update_status.clone(),
@@ -422,7 +433,8 @@ pub fn render_settings(
                         ui.vertical(|ui| {
                             ui.label(
                                 RichText::new(format!(
-                                    "Baixando atualização... {:.0}%",
+                                    "{} {:.0}%",
+                                    t.settings_downloading,
                                     p * 100.0
                                 ))
                                 .strong(),
@@ -441,10 +453,10 @@ pub fn render_settings(
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new(format!("❌ {}", err))
-                                .color(Color32::from_rgb(231, 76, 60))
-                                .strong(),
+                                    .color(Color32::from_rgb(231, 76, 60))
+                                    .strong(),
                             );
-                            if ui.button("Tentar Novamente").clicked()
+                            if ui.button(t.settings_try_again).clicked()
                                 && let Ok(mut st) = update_status.lock()
                             {
                                 *st = crate::updater::UpdateStatus::Idle;
@@ -465,8 +477,10 @@ pub fn render_settings(
                                 ui.vertical(|ui| {
                                     ui.label(
                                         RichText::new(format!(
-                                            "Nova versão v{} disponível para instalação!",
-                                            info.version
+                                            "{}{}{}",
+                                            t.settings_new_version_prefix,
+                                            info.version,
+                                            t.settings_new_version_suffix
                                         ))
                                         .size(16.0)
                                         .color(Color32::from_rgb(46, 204, 113))
@@ -475,8 +489,8 @@ pub fn render_settings(
                                     if !info.release_notes.is_empty() {
                                         ui.label(
                                             RichText::new(format!(
-                                                "Notas da versão: {}",
-                                                info.release_notes
+                                                "{} {}",
+                                                t.settings_release_notes, info.release_notes
                                             ))
                                             .weak(),
                                         );
@@ -490,7 +504,7 @@ pub fn render_settings(
                             } else if ui
                                 .add(
                                     egui::Button::new(
-                                        RichText::new("⬇️ Atualizar e Reiniciar Agora")
+                                        RichText::new(t.settings_update_now)
                                             .color(Color32::WHITE)
                                             .strong(),
                                     )
@@ -525,21 +539,15 @@ pub fn render_settings(
 
             // Botão de Salvar
             ui.horizontal(|ui| {
-                if ui
-                    .button(RichText::new("💾 Salvar Configurações").strong())
-                    .clicked()
-                {
+                if ui.button(RichText::new(t.settings_save_btn).strong()).clicked() {
                     match config.save(config_path) {
                         Ok(()) => {
                             state.hosts_changed = true;
-                            state.status_message = Some((
-                                "Configurações salvas em config.toml com sucesso!".to_string(),
-                                false,
-                            ));
+                            state.status_message = Some((t.settings_saved_ok.to_string(), false));
                         }
                         Err(e) => {
                             state.status_message =
-                                Some((format!("Erro ao salvar configurações: {}", e), true));
+                                Some((format!("{} {}", t.settings_save_err, e), true));
                         }
                     }
                 }
